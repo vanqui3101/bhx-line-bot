@@ -115,7 +115,7 @@ def _now_vn_time_str():
 # ---------------------------------------------------------------------------
 
 def build_revenue_report_messages(base_url):
-    """Tạo (flex_message, text_message) báo cáo doanh thu mới nhất, hoặc None nếu chưa có dữ liệu."""
+    """Tạo flex_message báo cáo doanh thu mới nhất, hoặc None nếu chưa có dữ liệu."""
     latest_date, latest_records, prev_date, prev_records = storage.get_latest_and_previous()
     if latest_date is None:
         return None
@@ -129,13 +129,7 @@ def build_revenue_report_messages(base_url):
         contents=FlexContainer.from_dict(bubble),
     )
 
-    report_filename = f"chi_tiet_{uuid.uuid4().hex[:8]}.xlsx"
-    report_path = os.path.join(REPORTS_DIR, report_filename)
-    build_detail_excel(latest_date, latest_records, prev_date, prev_records, report_path)
-    download_url = f"{base_url}/reports/{report_filename}"
-    link_text = f"📎 File Excel chi tiết đầy đủ:\n{download_url}"
-
-    return flex_message, TextMessage(text=link_text)
+    return flex_message
 
 
 def build_category_report_message():
@@ -262,9 +256,9 @@ def handle_text_message(event):
                 if result is None:
                     push_text(messaging_api, target_id, "Chưa có dữ liệu doanh thu nào được lưu. Anh gửi file Excel doanh thu trước nhé.")
                     return
-                flex_message, link_message = result
+                flex_message = result
                 messaging_api.push_message(
-                    PushMessageRequest(to=target_id, messages=[flex_message, link_message])
+                    PushMessageRequest(to=target_id, messages=[flex_message])
                 )
             except Exception as e:
                 traceback.print_exc()
