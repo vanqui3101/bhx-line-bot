@@ -5,10 +5,16 @@ LƯU Ý: trên gói Railway miễn phí, ổ đĩa không được lưu vĩnh vi
 deploy lại (redeploy) code. Dữ liệu vẫn giữ nguyên khi bot chạy bình thường,
 chỉ mất khi anh chủ động deploy code mới. Nếu cần lưu vĩnh viễn, có thể nâng
 cấp sau bằng Railway Volume hoặc Google Sheets.
+
+Có 2 nhóm dữ liệu:
+1. records / snapshot_times  -> báo cáo DOANH THU (giữ nguyên như code cũ)
+2. category_reports          -> báo cáo NGÀNH HÀNG (Nấm / Bánh trung thu / C2),
+   mới thêm để phục vụ lệnh "MỤC TIÊU KHUYẾN MÃI"
 """
 
 import sqlite3
 import os
+import json
 import calendar
 from datetime import datetime, date
 
@@ -37,8 +43,21 @@ def _connect():
             gio TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS category_reports (
+            ngay TEXT NOT NULL,
+            ten_st TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            gio TEXT,
+            PRIMARY KEY (ngay, ten_st)
+        )
+    """)
     return conn
 
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO DOANH THU (giữ nguyên như code cũ)
+# ---------------------------------------------------------------------------
 
 def save_records(rows):
     """Lưu (hoặc cập nhật) danh sách bản ghi doanh thu theo ngày."""
@@ -127,3 +146,37 @@ def get_latest_and_previous():
         return latest, latest_records, target_prev, prev_records
 
     return latest, latest_records, None, []
+
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO NGÀNH HÀNG (Nấm / Bánh trung thu / C2) - mới thêm
+# ---------------------------------------------------------------------------
+
+def save_category_report(ngay, ten_st, payload, gio=None):
+    """Lưu (hoặc cập nhật) 1 báo cáo ngành hàng theo (ngày, siêu thị)."""
+    conn = _connect()
+    with conn:
+        conn.execute("""
+            INSERT INTO category_reports (ngay, ten_st, payload_json, gio)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(ngay, ten_st) DO UPDATE SET
+                payload_json=excluded.payload_json,
+                gio=excluded.gio
+        """, (ngay, ten_st, json.dumps(payload, ensure_ascii=False), gio))
+    conn.close()
+
+
+def get_latest_category_report():
+    """Trả về (ngay, ten_st, payload_dict, gio) của báo cáo ngành hàng mới nhất,
+    hoặc (None, None, None, None) nếu chưa có dữ liệu."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT ngay, ten_st, payload_json, gio FROM category_reports "
+        "ORDER BY ngay DESC, rowid DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None, None, None, None
+    ngay, ten_st, payload_json, gio = row
+    return ngay, ten_st, json.loads(payload_json), gio
