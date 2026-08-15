@@ -1,21 +1,29 @@
 """
-flex_builder.py - Dựng nội dung LINE Flex Message cho báo cáo doanh thu.
-Bố cục 2 cột: Tháng này | Tháng trước, kèm chênh lệch tiền + %.
+flex_builder.py - Dựng nội dung LINE Flex Message.
+
+Theme: nền trắng, header vàng, chữ nhãn màu đen, số liệu màu đỏ.
+
+Có 2 loại thẻ:
+- build_flex_message(...)          -> Báo cáo DOANH THU (Offline / Online / Tổng / Bill TB)
+- build_category_flex_message(...) -> Báo cáo NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
 """
 
 from datetime import datetime
 
-MAX_ROWS = 10  # số siêu thị hiển thị trong bảng chi tiết
-
-NAVY = "#1F4E78"
-GRAY = "#999999"
-GRAY_LIGHT = "#888888"
-DARK = "#333333"
-GREEN = "#2E7D32"
-RED = "#C62828"
+YELLOW = "#FFC700"
+BLACK = "#1A1A1A"
+RED = "#D62020"
+GRAY = "#8C8C8C"
+GRAY_LIGHT = "#767676"
+DIVIDER = "#E6E6E6"
+ROW_BG = "#FAFAFA"
 
 
 def _fmt_money(n):
+    return f"{n:,.0f}".replace(",", ".")
+
+
+def _fmt_int(n):
     return f"{n:,.0f}".replace(",", ".")
 
 
@@ -39,6 +47,10 @@ def _total_dt(rec):
     return (rec.get("dt_offline") or 0) + (rec.get("dt_online") or 0)
 
 
+def _offline_dt(rec):
+    return rec.get("dt_offline") or 0
+
+
 def _online_dt(rec):
     return rec.get("dt_online") or 0
 
@@ -59,34 +71,31 @@ def _pct_change(new, old):
     return (new - old) / old * 100
 
 
-def _pct_text(pct):
+def _arrow(pct):
     if pct is None:
-        return "—", GRAY
-    arrow = "▲" if pct >= 0 else "▼"
-    color = GREEN if pct >= 0 else RED
-    return f"{arrow}{abs(pct):.1f}%", color
+        return ""
+    return "▲" if pct >= 0 else "▼"
 
 
 def _delta_text(now, prev, pct):
     if prev is None:
-        return "Chưa có dữ liệu tháng trước để so sánh", GRAY
+        return "Chưa có dữ liệu tháng trước để so sánh"
     delta = now - prev
     sign = "+" if delta >= 0 else "-"
-    color = GREEN if delta >= 0 else RED
-    pct_text, _ = _pct_text(pct)
-    return f"Chênh lệch: {sign}{_fmt_money(abs(delta))} đ ({pct_text})", color
+    arrow = _arrow(pct)
+    return f"{sign}{_fmt_money(abs(delta))} đ ({arrow}{abs(pct):.1f}%)"
 
 
-def _metric_compare_block(label, now_val, prev_val, is_last=False):
+def _metric_block(label, now_val, prev_val, big=False):
     pct = _pct_change(now_val, prev_val) if prev_val is not None else None
-    delta_str, delta_color = _delta_text(now_val, prev_val, pct)
+    delta_str = _delta_text(now_val, prev_val, pct)
 
-    block = {
+    return {
         "type": "box",
         "layout": "vertical",
-        "margin": "lg" if not is_last else "lg",
+        "margin": "lg",
         "contents": [
-            {"type": "text", "text": label, "size": "xs", "color": GRAY_LIGHT},
+            {"type": "text", "text": label, "size": "xs", "weight": "bold", "color": BLACK},
             {
                 "type": "box",
                 "layout": "horizontal",
@@ -95,10 +104,10 @@ def _metric_compare_block(label, now_val, prev_val, is_last=False):
                     {
                         "type": "text",
                         "text": f"{_fmt_money(now_val)} đ",
-                        "size": "md",
+                        "size": "xl" if big else "lg",
                         "weight": "bold",
-                        "color": NAVY,
-                        "flex": 5,
+                        "color": RED,
+                        "flex": 6,
                     },
                     {
                         "type": "text",
@@ -106,6 +115,7 @@ def _metric_compare_block(label, now_val, prev_val, is_last=False):
                         "size": "sm",
                         "color": GRAY,
                         "align": "end",
+                        "gravity": "bottom",
                         "flex": 5,
                     },
                 ],
@@ -113,76 +123,60 @@ def _metric_compare_block(label, now_val, prev_val, is_last=False):
             {
                 "type": "text",
                 "text": delta_str,
-                "size": "xxs",
-                "color": delta_color,
+                "size": "xs",
+                "weight": "bold",
+                "color": RED,
                 "align": "end",
                 "margin": "xs",
                 "wrap": True,
             },
         ],
     }
-    return block
 
 
 def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now=None, gio_prev=None):
     total_now = sum(_total_dt(r) for r in latest_records)
+    offline_now = sum(_offline_dt(r) for r in latest_records)
     online_now = sum(_online_dt(r) for r in latest_records)
     avg_bill_now = _avg_bill_value(latest_records)
 
     if prev_records:
         total_prev = sum(_total_dt(r) for r in prev_records)
+        offline_prev = sum(_offline_dt(r) for r in prev_records)
         online_prev = sum(_online_dt(r) for r in prev_records)
         avg_bill_prev = _avg_bill_value(prev_records)
     else:
-        total_prev = online_prev = avg_bill_prev = None
+        total_prev = offline_prev = online_prev = avg_bill_prev = None
 
-    prev_by_store = {r["ma_st"]: _total_dt(r) for r in prev_records} if prev_records else {}
-
-    rows_sorted = sorted(latest_records, key=lambda r: -_total_dt(r))[:MAX_ROWS]
-
-    store_rows = []
-    for rec in rows_sorted:
-        dt_now = _total_dt(rec)
-        dt_prev = prev_by_store.get(rec["ma_st"])
-        row_pct = _pct_change(dt_now, dt_prev) if dt_prev else None
-        row_pct_text, row_pct_color = _pct_text(row_pct)
-        store_rows.append({
-            "type": "box",
-            "layout": "horizontal",
-            "margin": "sm",
-            "contents": [
-                {"type": "text", "text": (rec.get("ten_st") or rec.get("ma_st"))[:18], "size": "xs", "flex": 5, "wrap": True, "color": DARK},
-                {"type": "text", "text": _fmt_money(dt_now), "size": "xs", "flex": 4, "align": "end", "color": DARK},
-                {"type": "text", "text": _fmt_money(dt_prev) if dt_prev else "—", "size": "xs", "flex": 4, "align": "end", "color": GRAY},
-                {"type": "text", "text": row_pct_text, "size": "xxs", "flex": 3, "align": "end", "color": row_pct_color},
-            ],
-        })
-
-    # Nhãn cột thời gian: ưu tiên hiện kèm giờ cập nhật nếu có
-    label_now = _fmt_date_short(latest_date)
-    if gio_now:
-        label_now += f" ({gio_now})"
-    label_prev = _fmt_date_short(prev_date) if prev_date else "—"
-    if gio_prev:
-        label_prev += f" ({gio_prev})"
-
-    subtitle = f"{len(latest_records)} siêu thị"
+    ten_st = latest_records[0].get("ten_st") if latest_records else None
+    subtitle_line2 = _fmt_date_display(latest_date)
     if prev_date:
-        subtitle += f" · So với {_fmt_date_display(prev_date)} (cùng ngày tháng trước)"
+        subtitle_line2 += f" · so với {_fmt_date_display(prev_date)} (cùng ngày tháng trước)"
 
-    note_text = "Top siêu thị theo doanh thu. Xem đầy đủ trong file Excel đính kèm."
-    if not prev_records:
-        note_text = "Chưa có dữ liệu cùng ngày tháng trước để so sánh. " + note_text
+    note_text = "Chưa có dữ liệu cùng ngày tháng trước để so sánh." if not prev_records else None
 
-    column_header = {
-        "type": "box",
-        "layout": "horizontal",
-        "contents": [
-            {"type": "text", "text": "Siêu thị", "size": "xxs", "color": GRAY, "flex": 5},
-            {"type": "text", "text": f"Tháng này\n{label_now}", "size": "xxs", "color": NAVY, "weight": "bold", "align": "end", "flex": 5, "wrap": True},
-            {"type": "text", "text": f"Tháng trước\n{label_prev}", "size": "xxs", "color": GRAY, "align": "end", "flex": 5, "wrap": True},
-        ],
-    }
+    body_contents = [
+        {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": ROW_BG,
+            "cornerRadius": "12px",
+            "paddingAll": "16px",
+            "contents": [
+                _metric_block("DOANH THU OFFLINE", offline_now, offline_prev),
+                {"type": "separator", "margin": "lg", "color": DIVIDER},
+                _metric_block("DOANH THU ONLINE", online_now, online_prev),
+                {"type": "separator", "margin": "lg", "color": DIVIDER},
+                _metric_block("TỔNG DOANH THU", total_now, total_prev, big=True),
+                {"type": "separator", "margin": "lg", "color": DIVIDER},
+                _metric_block("GIÁ TRỊ BILL TRUNG BÌNH", avg_bill_now, avg_bill_prev),
+            ],
+        },
+    ]
+    if note_text:
+        body_contents.append(
+            {"type": "text", "text": note_text, "size": "xxs", "color": GRAY, "margin": "md", "wrap": True}
+        )
 
     contents = {
         "type": "bubble",
@@ -190,50 +184,126 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         "header": {
             "type": "box",
             "layout": "vertical",
-            "backgroundColor": NAVY,
+            "backgroundColor": YELLOW,
             "paddingAll": "16px",
             "contents": [
-                {"type": "text", "text": "📊 BÁO CÁO DOANH THU", "color": "#FFFFFF", "weight": "bold", "size": "lg"},
-                {"type": "text", "text": f"{_fmt_date_display(latest_date)} · {subtitle}", "color": "#E0E7EF", "size": "xs", "margin": "sm", "wrap": True},
+                {"type": "text", "text": "BÁO CÁO DOANH THU", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": subtitle_line2, "color": "#3D3200", "size": "xs", "margin": "xs", "wrap": True},
             ],
         },
         "body": {
             "type": "box",
             "layout": "vertical",
             "paddingAll": "16px",
+            "backgroundColor": "#FFFFFF",
+            "contents": body_contents,
+        },
+    }
+    return contents
+
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
+# ---------------------------------------------------------------------------
+
+def _category_item_row(ten, qty_text, thanh_tien):
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "md",
+        "contents": [
+            {"type": "text", "text": f"• {ten}", "size": "xs", "color": BLACK, "wrap": True},
+            {
+                "type": "text",
+                "text": f"{qty_text}  —  {_fmt_money(thanh_tien)} đ",
+                "size": "xs",
+                "weight": "bold",
+                "color": RED,
+                "align": "end",
+            },
+        ],
+    }
+
+
+def _category_section(title, note, items, total_label, total_value_text):
+    contents = [{"type": "text", "text": title, "size": "md", "weight": "bold", "color": BLACK}]
+    if note:
+        contents.append({"type": "text", "text": note, "size": "xxs", "color": GRAY, "margin": "xs", "wrap": True})
+    for it in items:
+        contents.append(_category_item_row(*it))
+    if not items and not note:
+        pass
+    contents.append({
+        "type": "text",
+        "text": f"{total_label}:  {total_value_text}",
+        "size": "sm",
+        "weight": "bold",
+        "color": RED,
+        "align": "end",
+        "margin": "md",
+    })
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "lg",
+        "contents": contents,
+    }
+
+
+def build_category_flex_message(ngay, ten_st, payload):
+    nam_dt = payload["nam"]["doanh_thu"]
+
+    btt = payload["banh_trung_thu"]
+    btt_items = [(it["ten"], f"{_fmt_int(it['sl'])} cái", it["thanh_tien"]) for it in btt["items"]]
+
+    c2 = payload["c2"]
+    c2_items = [(it["ten"], f"{_fmt_int(it['chai'])} chai", it["thanh_tien"]) for it in c2["items"]]
+
+    sections = [
+        _category_section("NẤM", None, [], "Doanh thu", f"{_fmt_money(nam_dt)} đ"),
+        _category_section(
+            "BÁNH TRUNG THU",
+            "(chỉ tính hàng bán, không tính tặng)",
+            btt_items,
+            f"Tổng {_fmt_int(btt['tong_sl'])} cái",
+            f"{_fmt_money(btt['tong_tien'])} đ",
+        ),
+        _category_section(
+            "TRÀ C2",
+            "(quy đổi 1 thùng = 24 chai, 1 lốc = 6 chai)",
+            c2_items,
+            f"Tổng {_fmt_int(c2['tong_chai'])} chai",
+            f"{_fmt_money(c2['tong_tien'])} đ",
+        ),
+    ]
+
+    body_contents = []
+    for i, sec in enumerate(sections):
+        body_contents.append(sec)
+        if i < len(sections) - 1:
+            body_contents.append({"type": "separator", "margin": "lg", "color": DIVIDER})
+
+    contents = {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": YELLOW,
+            "paddingAll": "16px",
             "contents": [
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "backgroundColor": "#F5F7FA",
-                    "cornerRadius": "8px",
-                    "paddingAll": "12px",
-                    "contents": [
-                        column_header,
-                        {"type": "separator", "margin": "md"},
-                        _metric_compare_block("TỔNG DOANH THU", total_now, total_prev),
-                        {"type": "separator", "margin": "lg"},
-                        _metric_compare_block("DOANH THU ONLINE", online_now, online_prev),
-                        {"type": "separator", "margin": "lg"},
-                        _metric_compare_block("GIÁ TRỊ BILL TRUNG BÌNH", avg_bill_now, avg_bill_prev, is_last=True),
-                    ],
-                },
-                {"type": "separator", "margin": "lg"},
-                {
-                    "type": "box",
-                    "layout": "horizontal",
-                    "margin": "lg",
-                    "contents": [
-                        {"type": "text", "text": "Siêu thị", "size": "xs", "color": GRAY, "flex": 5},
-                        {"type": "text", "text": "T này", "size": "xs", "color": GRAY, "flex": 4, "align": "end"},
-                        {"type": "text", "text": "T trước", "size": "xs", "color": GRAY, "flex": 4, "align": "end"},
-                        {"type": "text", "text": "%", "size": "xs", "color": GRAY, "flex": 3, "align": "end"},
-                    ],
-                },
-                *store_rows,
-                {"type": "separator", "margin": "lg"},
-                {"type": "text", "text": note_text, "size": "xxs", "color": GRAY, "margin": "md", "wrap": True},
+                {"type": "text", "text": "BÁO CÁO NGÀNH HÀNG", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": _fmt_date_display(ngay), "color": "#3D3200", "size": "xs", "margin": "xs"},
             ],
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "16px",
+            "backgroundColor": "#FFFFFF",
+            "contents": body_contents,
         },
     }
     return contents
