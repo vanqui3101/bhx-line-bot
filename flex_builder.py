@@ -96,7 +96,7 @@ def _metric_block(label, now_val, prev_val, big=False):
         "layout": "vertical",
         "margin": "lg",
         "contents": [
-            {"type": "text", "text": label, "size": "xl", "weight": "bold", "color": BLACK},
+            {"type": "text", "text": label, "size": "xs", "weight": "bold", "color": BLACK},
             {
                 "type": "box",
                 "layout": "horizontal",
@@ -105,7 +105,7 @@ def _metric_block(label, now_val, prev_val, big=False):
                     {
                         "type": "text",
                         "text": f"{_fmt_money(now_val)} đ",
-                        "size": "5xl" if big else "4xl",
+                        "size": "xl" if big else "lg",
                         "weight": "bold",
                         "color": RED,
                         "flex": 6,
@@ -113,7 +113,7 @@ def _metric_block(label, now_val, prev_val, big=False):
                     {
                         "type": "text",
                         "text": f"{_fmt_money(prev_val)} đ" if prev_val is not None else "—",
-                        "size": "xxl",
+                        "size": "sm",
                         "color": GRAY,
                         "align": "end",
                         "gravity": "bottom",
@@ -124,7 +124,7 @@ def _metric_block(label, now_val, prev_val, big=False):
             {
                 "type": "text",
                 "text": delta_str,
-                "size": "xl",
+                "size": "xs",
                 "weight": "bold",
                 "color": RED,
                 "align": "end",
@@ -176,7 +176,7 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
     ]
     if note_text:
         body_contents.append(
-            {"type": "text", "text": note_text, "size": "lg", "color": GRAY, "margin": "md", "wrap": True}
+            {"type": "text", "text": note_text, "size": "xxs", "color": GRAY, "margin": "md", "wrap": True}
         )
 
     contents = {
@@ -188,9 +188,9 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
             "backgroundColor": YELLOW,
             "paddingAll": "16px",
             "contents": [
-                {"type": "text", "text": "BÁO CÁO DOANH THU", "color": BLACK, "weight": "bold", "size": "md"},
-                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "xxl", "margin": "sm", "wrap": True},
-                {"type": "text", "text": subtitle_line2, "color": "#3D3200", "size": "xl", "margin": "xs", "wrap": True},
+                {"type": "text", "text": "BÁO CÁO DOANH THU", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": subtitle_line2, "color": "#3D3200", "size": "xs", "margin": "xs", "wrap": True},
             ],
         },
         "body": {
@@ -214,11 +214,11 @@ def _category_item_row(ten, qty_text, thanh_tien):
         "layout": "vertical",
         "margin": "md",
         "contents": [
-            {"type": "text", "text": f"• {ten}", "size": "xl", "color": BLACK, "wrap": True},
+            {"type": "text", "text": f"• {ten}", "size": "xs", "color": BLACK, "wrap": True},
             {
                 "type": "text",
                 "text": f"{qty_text}  —  {_fmt_money(thanh_tien)} đ",
-                "size": "xl",
+                "size": "xs",
                 "weight": "bold",
                 "color": RED,
                 "align": "end",
@@ -228,9 +228,9 @@ def _category_item_row(ten, qty_text, thanh_tien):
 
 
 def _category_section(title, note, items, total_label, total_value_text):
-    contents = [{"type": "text", "text": title, "size": "3xl", "weight": "bold", "color": BLACK}]
+    contents = [{"type": "text", "text": title, "size": "md", "weight": "bold", "color": BLACK}]
     if note:
-        contents.append({"type": "text", "text": note, "size": "lg", "color": GRAY, "margin": "xs", "wrap": True})
+        contents.append({"type": "text", "text": note, "size": "xxs", "color": GRAY, "margin": "xs", "wrap": True})
     for it in items:
         contents.append(_category_item_row(*it))
     if not items and not note:
@@ -238,7 +238,7 @@ def _category_section(title, note, items, total_label, total_value_text):
     contents.append({
         "type": "text",
         "text": f"{total_label}:  {total_value_text}",
-        "size": "xxl",
+        "size": "sm",
         "weight": "bold",
         "color": RED,
         "align": "end",
@@ -294,9 +294,9 @@ def build_category_flex_message(ngay, ten_st, payload):
             "backgroundColor": YELLOW,
             "paddingAll": "16px",
             "contents": [
-                {"type": "text", "text": "BÁO CÁO NGÀNH HÀNG", "color": BLACK, "weight": "bold", "size": "md"},
-                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "xxl", "margin": "sm", "wrap": True},
-                {"type": "text", "text": _fmt_date_display(ngay), "color": "#3D3200", "size": "xl", "margin": "xs"},
+                {"type": "text", "text": "BÁO CÁO NGÀNH HÀNG", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": _fmt_date_display(ngay), "color": "#3D3200", "size": "xs", "margin": "xs"},
             ],
         },
         "body": {
