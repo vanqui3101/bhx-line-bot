@@ -31,6 +31,12 @@ def _connect():
             PRIMARY KEY (ngay, ma_st)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS snapshot_times (
+            ngay TEXT PRIMARY KEY,
+            gio TEXT
+        )
+    """)
     return conn
 
 
@@ -69,6 +75,27 @@ def get_records_by_date(ngay):
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
+
+
+def save_snapshot_time(ngay, gio):
+    """Lưu giờ mà dữ liệu ngày này được gửi vào bot (để hiển thị khung giờ so sánh)."""
+    conn = _connect()
+    with conn:
+        conn.execute("""
+            INSERT INTO snapshot_times (ngay, gio) VALUES (?, ?)
+            ON CONFLICT(ngay) DO UPDATE SET gio=excluded.gio
+        """, (ngay, gio))
+    conn.close()
+
+
+def get_snapshot_time(ngay):
+    if not ngay:
+        return None
+    conn = _connect()
+    cur = conn.execute("SELECT gio FROM snapshot_times WHERE ngay = ?", (ngay,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 
 def _same_day_last_month(ngay_str):
