@@ -5,8 +5,7 @@ Luồng hoạt động:
 1. Người dùng gửi file Excel doanh thu (nhiều dòng, mỗi dòng 1 siêu thị)
    -> Bot đọc, lưu vào SQLite theo ngày, trả lời xác nhận.
 2. Người dùng gõ lệnh "báo cáo doanh thu"
-   -> Bot lấy dữ liệu mới nhất + kỳ trước, trả về Flex Message (thẻ đẹp)
-      kèm link tải file Excel chi tiết đầy đủ tất cả siêu thị.
+   -> Bot lấy dữ liệu mới nhất + kỳ trước, trả về Flex Message (thẻ đẹp).
 
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN
@@ -28,6 +27,7 @@ from linebot.v3.messaging import (
     MessagingApi,
     MessagingApiBlob,
     ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
     FlexMessage,
     FlexContainer,
@@ -126,17 +126,23 @@ def handle_text_message(event):
     if not REPORT_COMMAND_PATTERN.search(text):
         return
 
+    user_id = event.source.user_id
+
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
+
+        # Trả lời ngay lập tức để không bị hết hạn "reply token" của LINE.
+        # Báo cáo thật sự sẽ được gửi ngay sau đó bằng tin nhắn riêng (push message).
+        try:
+            reply_text(messaging_api, event.reply_token, "⏳ Đang tổng hợp báo cáo, đợi anh vài giây nhé...")
+        except Exception:
+            traceback.print_exc()
+
         try:
             latest_date, latest_records, prev_date, prev_records = storage.get_latest_and_previous()
 
             if latest_date is None:
-                reply_text(
-                    messaging_api,
-                    event.reply_token,
-                    "Chưa có dữ liệu nào được lưu. Anh gửi file Excel doanh thu trước nhé.",
-                )
+                push_text(messaging_api, user_id, "Chưa có dữ liệu nào được lưu. Anh gửi file Excel doanh thu trước nhé.")
                 return
 
             gio_now = storage.get_snapshot_time(latest_date)
@@ -154,15 +160,25 @@ def handle_text_message(event):
             download_url = f"{request.host_url.rstrip('/')}/reports/{report_filename}"
             link_text = f"📎 File Excel chi tiết đầy đủ (offline/online/tháng trước/chênh lệch từng siêu thị):\n{download_url}"
 
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
+            messaging_api.push_message(
+                PushMessageRequest(
+                    to=user_id,
                     messages=[flex_message, TextMessage(text=link_text)],
                 )
             )
         except Exception as e:
             traceback.print_exc()
-            reply_text(messaging_api, event.reply_token, f"Có lỗi khi tạo báo cáo: {e}")
+            try:
+                push_text(messaging_api, user_id, f"Có lỗi khi tạo báo cáo: {e}")
+            except Exception:
+                traceback.print_exc()
+
+
+def push_text(messaging_api, user_id, text):
+    text = text[:4900]
+    messaging_api.push_message(
+        PushMessageRequest(to=user_id, messages=[TextMessage(text=text)])
+    )
 
 
 def reply_text(messaging_api, reply_token, text):
