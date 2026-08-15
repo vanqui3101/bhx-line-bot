@@ -271,7 +271,7 @@ def handle_text_message(event):
         # Lệnh MỤC TIÊU KHUYẾN MÃI — báo cáo ngành hàng
         if MTKM_COMMAND_PATTERN.match(text):
             try:
-                reply_text(messaging_api, event.reply_token, "⏳ Đang tổng hợp báo cáo ngành hàng, đợi anh vài giây...")
+                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
             except Exception:
                 traceback.print_exc()
             try:
