@@ -178,7 +178,7 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         "type": "box",
         "layout": "horizontal",
         "contents": [
-            {"type": "text", "text": "", "size": "xxs", "flex": 5},
+            {"type": "text", "text": "Siêu thị", "size": "xxs", "color": GRAY, "flex": 5},
             {"type": "text", "text": f"Tháng này\n{label_now}", "size": "xxs", "color": NAVY, "weight": "bold", "align": "end", "flex": 5, "wrap": True},
             {"type": "text", "text": f"Tháng trước\n{label_prev}", "size": "xxs", "color": GRAY, "align": "end", "flex": 5, "wrap": True},
         ],
