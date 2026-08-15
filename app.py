@@ -5,7 +5,8 @@ Luồng hoạt động:
 1. Người dùng gửi file Excel doanh thu (nhiều dòng, mỗi dòng 1 siêu thị)
    -> Bot đọc, lưu vào SQLite theo ngày, trả lời xác nhận.
 2. Người dùng gõ lệnh "báo cáo doanh thu"
-   -> Bot lấy dữ liệu mới nhất + kỳ trước, trả về Flex Message (thẻ đẹp).
+   -> Bot lấy dữ liệu mới nhất + kỳ trước, trả về Flex Message (thẻ đẹp)
+      kèm link tải file Excel chi tiết đầy đủ tất cả siêu thị.
 
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN
@@ -17,7 +18,7 @@ import re
 import uuid
 import traceback
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_from_directory
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
@@ -35,6 +36,7 @@ from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageCon
 
 from excel_reader import read_all_rows
 from flex_builder import build_flex_message
+from excel_report import build_detail_excel
 import storage
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -42,6 +44,9 @@ CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
+
+REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 app = Flask(__name__)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
@@ -53,6 +58,11 @@ REPORT_COMMAND_PATTERN = re.compile(r"b[aá]o\s*c[aá]o\s*doanh\s*thu", re.IGNOR
 @app.route("/", methods=["GET"])
 def health():
     return "LINE bot báo cáo doanh thu (bản 2) đang chạy.", 200
+
+
+@app.route("/reports/<path:filename>", methods=["GET"])
+def download_report(filename):
+    return send_from_directory(REPORTS_DIR, filename, as_attachment=True)
 
 
 @app.route("/callback", methods=["POST"])
@@ -91,6 +101,14 @@ def handle_file_message(event):
             storage.save_records(rows)
 
             from datetime import datetime as _dt
+            try:
+                from zoneinfo import ZoneInfo
+                now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+            except Exception:
+                now_vn = _dt.now()
+            gio_str = now_vn.strftime("%H:%M")
+            storage.save_snapshot_time(date_str, gio_str)
+
             date_display = _dt.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
             total = sum((r["dt_offline"] or 0) + (r["dt_online"] or 0) for r in rows)
             total_str = f"{total:,.0f}".replace(",", ".")
@@ -121,13 +139,26 @@ def handle_text_message(event):
                 )
                 return
 
-            bubble = build_flex_message(latest_date, latest_records, prev_date, prev_records)
+            gio_now = storage.get_snapshot_time(latest_date)
+            gio_prev = storage.get_snapshot_time(prev_date)
+
+            bubble = build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now, gio_prev)
             flex_message = FlexMessage(
                 alt_text=f"Báo cáo doanh thu {latest_date}",
                 contents=FlexContainer.from_dict(bubble),
             )
+
+            report_filename = f"chi_tiet_{uuid.uuid4().hex[:8]}.xlsx"
+            report_path = os.path.join(REPORTS_DIR, report_filename)
+            build_detail_excel(latest_date, latest_records, prev_date, prev_records, report_path)
+            download_url = f"{request.host_url.rstrip('/')}/reports/{report_filename}"
+            link_text = f"📎 File Excel chi tiết đầy đủ (offline/online/tháng trước/chênh lệch từng siêu thị):\n{download_url}"
+
             messaging_api.reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=[flex_message])
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[flex_message, TextMessage(text=link_text)],
+                )
             )
         except Exception as e:
             traceback.print_exc()
