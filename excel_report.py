@@ -1,6 +1,7 @@
 """
 excel_report.py - Tạo file Excel báo cáo chi tiết doanh thu từng siêu thị,
 so sánh với cùng ngày tháng trước.
+(Giữ nguyên như code cũ, không thay đổi)
 """
 
 import openpyxl
