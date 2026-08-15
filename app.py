@@ -8,14 +8,11 @@ Luồng hoạt động:
 2. Người dùng gõ lệnh "báo cáo doanh thu" (ở bất kỳ đâu, kể cả chat riêng)
    -> Bot lấy dữ liệu mới nhất, trả về báo cáo.
 3. Gõ "id nhóm" trong 1 nhóm -> bot trả về Group ID của nhóm đó (để cấu hình GROUP_ID).
-4. Mỗi ngày lúc giờ cấu hình (mặc định 08:00, giờ VN) -> tự động gửi báo cáo vào nhóm.
 
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
 - GROUP_ID                   (ID nhóm để tự động gửi báo cáo - lấy bằng lệnh "id nhóm")
-- DAILY_REPORT_HOUR          (giờ gửi tự động mỗi ngày, mặc định 8)
-- DAILY_REPORT_MINUTE        (phút gửi tự động mỗi ngày, mặc định 0)
 """
 
 import os
@@ -48,8 +45,6 @@ import storage
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
-DAILY_HOUR = int(os.environ.get("DAILY_REPORT_HOUR", "8"))
-DAILY_MINUTE = int(os.environ.get("DAILY_REPORT_MINUTE", "0"))
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
@@ -233,51 +228,6 @@ def reply_text(messaging_api, reply_token, text):
     messaging_api.reply_message(
         ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=text)])
     )
-
-
-def send_scheduled_report():
-    """Được gọi tự động mỗi ngày theo lịch để gửi báo cáo vào nhóm."""
-    if not GROUP_ID:
-        return
-    try:
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            base_url = PUBLIC_BASE_URL or "https://web-production-1fd9b8.up.railway.app"
-            result = build_report_messages(base_url)
-            if result:
-                flex_message, link_message = result
-                messaging_api.push_message(
-                    PushMessageRequest(to=GROUP_ID, messages=[flex_message, link_message])
-                )
-    except Exception:
-        traceback.print_exc()
-
-
-def start_scheduler():
-    if not GROUP_ID:
-        return
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        try:
-            from zoneinfo import ZoneInfo
-            tz = ZoneInfo("Asia/Ho_Chi_Minh")
-        except Exception:
-            tz = None
-
-        scheduler = BackgroundScheduler(timezone=tz)
-        scheduler.add_job(
-            send_scheduled_report,
-            CronTrigger(hour=DAILY_HOUR, minute=DAILY_MINUTE, timezone=tz),
-            id="daily_report",
-            replace_existing=True,
-        )
-        scheduler.start()
-    except Exception:
-        traceback.print_exc()
-
-
-start_scheduler()
 
 
 if __name__ == "__main__":
