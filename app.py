@@ -17,8 +17,9 @@ Luồng hoạt động (MỚI):
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
-- GROUP_ID                   (tuỳ chọn — nếu gõ lệnh trong chat riêng với bot,
-                               bot sẽ gửi báo cáo vào nhóm này thay vì chat riêng)
+- GROUP_ID                   (không còn dùng để định tuyến tin nhắn — bot luôn
+                               trả lời đúng nơi gõ lệnh, giữ biến này chỉ để
+                               tương thích ngược nếu cần dùng lại sau này)
 """
 
 import os
@@ -253,14 +254,14 @@ def handle_text_message(event):
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
 
-        # Nguồn gửi lệnh: nếu gõ trong nhóm -> group_id của chính nhóm đó.
-        # Nếu gõ chat riêng với bot -> ưu tiên gửi vào GROUP_ID đã cấu hình (nếu có),
-        # để báo cáo vẫn lên đúng nhóm chung.
+        # Bot luôn trả lời đúng nơi người dùng gõ lệnh:
+        # - Gõ trong nhóm -> trả lời trong chính nhóm đó.
+        # - Gõ chat riêng với bot -> trả lời lại trong chat riêng đó.
         source_type = event.source.type
         if source_type == "group":
             target_id = event.source.group_id
         else:
-            target_id = GROUP_ID or getattr(event.source, "user_id", None)
+            target_id = getattr(event.source, "user_id", None)
 
         # Lệnh lấy Group ID
         if GROUP_ID_COMMAND_PATTERN.match(text):
