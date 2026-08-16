@@ -44,7 +44,9 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent
 
-from excel_reader import read_all_rows, read_category_rows, detect_file_type
+from excel_reader import (
+    read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage, detect_file_type,
+)
 from flex_builder import build_flex_message, build_category_flex_message
 from excel_report import build_detail_excel
 import storage
@@ -144,6 +146,10 @@ def build_category_report_message():
     if ngay is None:
         return None
 
+    _stock_ten_st, stock_payload, _stock_gio = storage.get_latest_stock_snapshot()
+    if stock_payload:
+        payload = attach_stock_percentage(payload, stock_payload)
+
     bubble = build_category_flex_message(ngay, ten_st, payload)
     flex_message = FlexMessage(
         alt_text=f"Báo cáo ngành hàng {ngay}",
@@ -208,11 +214,24 @@ def handle_file_message(event):
                 ).replace(",", ".")
                 reply_text(messaging_api, event.reply_token, reply)
 
+            elif file_type == "stock":
+                stock_payload = read_stock_rows(tmp_path)
+                storage.save_stock_snapshot(
+                    stock_payload["ten_st"], stock_payload, _now_vn_time_str()
+                )
+                so_sp = len(stock_payload["ton_kho_map"])
+                reply = (
+                    f"✅ Đã lưu dữ liệu TỒN KHO cho {so_sp} sản phẩm.\n\n"
+                    f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo có kèm % bán trên tồn."
+                )
+                reply_text(messaging_api, event.reply_token, reply)
+
             else:
                 reply_text(
                     messaging_api, event.reply_token,
                     "Không nhận diện được loại file này. Anh kiểm tra lại đúng file "
-                    "\"Doanh thu theo siêu thị\" hoặc file \"Doanh thu chi tiết\" (ngành hàng) nhé."
+                    "\"Doanh thu theo siêu thị\", \"Doanh thu chi tiết\" (ngành hàng), "
+                    "hoặc \"BC tồn theo model\" (tồn kho) nhé."
                 )
 
         except Exception as e:
