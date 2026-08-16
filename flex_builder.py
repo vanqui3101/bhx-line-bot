@@ -244,42 +244,53 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
 # BÁO CÁO NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
 # ---------------------------------------------------------------------------
 
-def _category_item_row(ten, qty_text, thanh_tien):
+TABLE_HEAD_BG = "#AAD2F0"
+ROW_ALT_BG = "#DEF0FB"
+
+
+def _table_header_row():
     return {
         "type": "box",
-        "layout": "vertical",
-        "margin": "md",
+        "layout": "horizontal",
+        "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "8px",
+        "margin": "sm",
         "contents": [
-            {"type": "text", "text": f"• {ten}", "size": "xs", "color": BLACK, "wrap": True},
-            {
-                "type": "text",
-                "text": f"{qty_text}  —  {_fmt_money(thanh_tien)} đ",
-                "size": "xs",
-                "weight": "bold",
-                "color": RED,
-                "align": "end",
-            },
+            {"type": "text", "text": "Sản phẩm", "size": "md", "weight": "bold", "color": BLACK, "flex": 6},
+            {"type": "text", "text": "SL bán", "size": "md", "weight": "bold", "color": BLACK, "flex": 3},
+            {"type": "text", "text": "% bán/nhập", "size": "md", "weight": "bold", "color": BLACK, "flex": 4, "align": "end"},
         ],
     }
 
 
-def _category_section(title, note, items, total_label, total_value_text):
-    contents = [{"type": "text", "text": title, "size": "md", "weight": "bold", "color": BLACK}]
+def _table_data_row(ten, qty_text, pct_value, alt_bg):
+    pct_text = f"{pct_value:.1f}%" if pct_value is not None else "—"
+    row = {
+        "type": "box",
+        "layout": "horizontal",
+        "paddingAll": "8px",
+        "contents": [
+            {"type": "text", "text": ten, "size": "md", "color": BLACK, "flex": 6, "wrap": True},
+            {"type": "text", "text": qty_text, "size": "md", "weight": "bold", "color": RED, "flex": 3, "wrap": True},
+            {"type": "text", "text": pct_text, "size": "md", "weight": "bold", "color": RED, "flex": 4, "align": "end"},
+        ],
+    }
+    if alt_bg:
+        row["backgroundColor"] = ROW_ALT_BG
+    return row
+
+
+def _category_section_table(title, note, items, empty_note):
+    """Mục có bảng sản phẩm (Bánh trung thu / Trà C2) — không có dòng Tổng."""
+    contents = [{"type": "text", "text": title, "size": "xl", "weight": "bold", "color": BLACK}]
     if note:
-        contents.append({"type": "text", "text": note, "size": "xxs", "color": GRAY, "margin": "xs", "wrap": True})
-    for it in items:
-        contents.append(_category_item_row(*it))
-    if not items and not note:
-        pass
-    contents.append({
-        "type": "text",
-        "text": f"{total_label}:  {total_value_text}",
-        "size": "sm",
-        "weight": "bold",
-        "color": RED,
-        "align": "end",
-        "margin": "md",
-    })
+        contents.append({"type": "text", "text": note, "size": "lg", "color": GRAY, "margin": "xs", "wrap": True})
+    contents.append(_table_header_row())
+    if not items:
+        contents.append({"type": "text", "text": empty_note, "size": "lg", "color": GRAY, "margin": "sm", "wrap": True})
+    else:
+        for i, (ten, qty_text, pct_value) in enumerate(items):
+            contents.append(_table_data_row(ten, qty_text, pct_value, alt_bg=(i % 2 == 1)))
     return {
         "type": "box",
         "layout": "vertical",
@@ -288,30 +299,55 @@ def _category_section(title, note, items, total_label, total_value_text):
     }
 
 
+def _category_section_simple(title, total_label, total_value_text):
+    """Mục chỉ có 1 dòng tổng (Nấm)."""
+    return {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "lg",
+        "contents": [
+            {"type": "text", "text": title, "size": "xl", "weight": "bold", "color": BLACK},
+            {
+                "type": "text",
+                "text": f"{total_label}:  {total_value_text}",
+                "size": "lg",
+                "weight": "bold",
+                "color": RED,
+                "align": "end",
+                "margin": "md",
+            },
+        ],
+    }
+
+
 def build_category_flex_message(ngay, ten_st, payload):
     nam_dt = payload["nam"]["doanh_thu"]
 
     btt = payload["banh_trung_thu"]
-    btt_items = [(it["ten"], f"{_fmt_int(it['sl'])} cái", it["thanh_tien"]) for it in btt["items"]]
+    btt_items = [
+        (it["ten"], f"{_fmt_int(it['sl'])} cái", it.get("pct_ban_nhap"))
+        for it in btt["items"]
+    ]
 
     c2 = payload["c2"]
-    c2_items = [(it["ten"], f"{_fmt_int(it['chai'])} chai", it["thanh_tien"]) for it in c2["items"]]
+    c2_items = [
+        (it["ten"], f"{_fmt_int(it['chai'])} chai", it.get("pct_ban_nhap"))
+        for it in c2["items"]
+    ]
 
     sections = [
-        _category_section("NẤM", None, [], "Doanh thu", f"{_fmt_money(nam_dt)} đ"),
-        _category_section(
+        _category_section_simple("NẤM", "Doanh thu", f"{_fmt_money(nam_dt)} đ"),
+        _category_section_table(
             "BÁNH TRUNG THU",
             "(chỉ tính hàng bán, không tính tặng)",
             btt_items,
-            f"Tổng {_fmt_int(btt['tong_sl'])} cái",
-            f"{_fmt_money(btt['tong_tien'])} đ",
+            "Không có dữ liệu bán trong ngày",
         ),
-        _category_section(
+        _category_section_table(
             "TRÀ C2",
             "(quy đổi 1 thùng = 24 chai, 1 lốc = 6 chai)",
             c2_items,
-            f"Tổng {_fmt_int(c2['tong_chai'])} chai",
-            f"{_fmt_money(c2['tong_tien'])} đ",
+            "Không có dữ liệu bán trong ngày",
         ),
     ]
 
