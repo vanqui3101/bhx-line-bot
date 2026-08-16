@@ -52,6 +52,13 @@ def _connect():
             PRIMARY KEY (ngay, ten_st)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stock_snapshot (
+            ten_st TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            gio TEXT
+        )
+    """)
     return conn
 
 
@@ -180,3 +187,36 @@ def get_latest_category_report():
         return None, None, None, None
     ngay, ten_st, payload_json, gio = row
     return ngay, ten_st, json.loads(payload_json), gio
+
+
+# ---------------------------------------------------------------------------
+# TỒN KHO (BC tồn theo model) - mới thêm
+# ---------------------------------------------------------------------------
+
+def save_stock_snapshot(ten_st, payload, gio=None):
+    """Lưu (hoặc ghi đè) snapshot tồn kho mới nhất của 1 siêu thị."""
+    conn = _connect()
+    with conn:
+        conn.execute("""
+            INSERT INTO stock_snapshot (ten_st, payload_json, gio)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ten_st) DO UPDATE SET
+                payload_json=excluded.payload_json,
+                gio=excluded.gio
+        """, (ten_st, json.dumps(payload, ensure_ascii=False), gio))
+    conn.close()
+
+
+def get_latest_stock_snapshot():
+    """Trả về (ten_st, payload_dict, gio) của snapshot tồn kho mới nhất,
+    hoặc (None, None, None) nếu chưa có dữ liệu."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT ten_st, payload_json, gio FROM stock_snapshot ORDER BY rowid DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None, None, None
+    ten_st, payload_json, gio = row
+    return ten_st, json.loads(payload_json), gio
