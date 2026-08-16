@@ -123,7 +123,13 @@ def build_revenue_report_messages(base_url):
     gio_now = storage.get_snapshot_time(latest_date)
     gio_prev = storage.get_snapshot_time(prev_date)
 
-    bubble = build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now, gio_prev)
+    nh_ngay, nh_ten_st, nh_payload, _nh_gio = storage.get_latest_category_report()
+    nganh_hang_breakdown = nh_payload["nganh_hang"]["items"] if nh_payload else None
+
+    bubble = build_flex_message(
+        latest_date, latest_records, prev_date, prev_records, gio_now, gio_prev,
+        nganh_hang_breakdown=nganh_hang_breakdown, nganh_hang_ngay=nh_ngay,
+    )
     flex_message = FlexMessage(
         alt_text=f"Báo cáo doanh thu {latest_date}",
         contents=FlexContainer.from_dict(bubble),
