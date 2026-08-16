@@ -135,7 +135,8 @@ def _metric_block(label, now_val, prev_val, big=False):
     }
 
 
-def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now=None, gio_prev=None):
+def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now=None, gio_prev=None,
+                        nganh_hang_breakdown=None, nganh_hang_ngay=None):
     total_now = sum(_total_dt(r) for r in latest_records)
     offline_now = sum(_offline_dt(r) for r in latest_records)
     online_now = sum(_online_dt(r) for r in latest_records)
@@ -178,6 +179,41 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         body_contents.append(
             {"type": "text", "text": note_text, "size": "xxs", "color": GRAY, "margin": "md", "wrap": True}
         )
+
+    if nganh_hang_breakdown:
+        body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
+        header_line = "DOANH THU THEO NGÀNH HÀNG"
+        if nganh_hang_ngay:
+            header_line += f" ({_fmt_date_display(nganh_hang_ngay)})"
+        body_contents.append(
+            {"type": "text", "text": header_line, "size": "sm", "weight": "bold", "color": BLACK, "margin": "xl"}
+        )
+        body_contents.append(
+            {"type": "text", "text": "(tính từ file doanh thu chi tiết)", "size": "xxs", "color": GRAY, "margin": "xs"}
+        )
+        nh_rows = []
+        for it in nganh_hang_breakdown:
+            nh_rows.append({
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "sm",
+                "contents": [
+                    {"type": "text", "text": it["ten"], "size": "xs", "color": BLACK, "flex": 6, "wrap": True},
+                    {"type": "text", "text": f"{_fmt_money(it['thanh_tien'])} đ", "size": "xs", "weight": "bold", "color": RED, "flex": 5, "align": "end"},
+                ],
+            })
+        body_contents.extend(nh_rows)
+        tong_nh = sum(it["thanh_tien"] for it in nganh_hang_breakdown)
+        body_contents.append({"type": "separator", "margin": "md", "color": DIVIDER})
+        body_contents.append({
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "sm",
+            "contents": [
+                {"type": "text", "text": "TỔNG", "size": "xs", "weight": "bold", "color": BLACK, "flex": 6},
+                {"type": "text", "text": f"{_fmt_money(tong_nh)} đ", "size": "xs", "weight": "bold", "color": RED, "flex": 5, "align": "end"},
+            ],
+        })
 
     contents = {
         "type": "bubble",
