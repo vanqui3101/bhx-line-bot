@@ -137,6 +137,18 @@ def _unit_multiplier(don_vi):
     return UNIT_TO_CHAI.get(key, 1)
 
 
+# 5 nhóm ngành hàng gộp theo yêu cầu, hiển thị trong bảng "DOANH THU THEO NGÀNH HÀNG"
+# của thẻ báo cáo doanh thu. key = tên hiển thị, value = danh sách tên "Ngành hàng"
+# gốc trong file cần cộng gộp lại.
+NGANH_HANG_GROUPS = [
+    ("Bia Nước", ["Bia Các Loại", "Thức uống giải khát các loại"]),
+    ("Sữa - Đông Mát", ["Sữa - Thức uống bổ dưỡng các loại", "Thực phẩm đông lạnh - Hàng mát các loại"]),
+    ("Thịt Gia Cầm", ["Thịt gia cầm gia súc các loại"]),
+    ("Trái Cây - Rau Củ", ["Trái Cây Các Loại", "Rau Củ Các Loại"]),
+    ("Thủy Hải Sản", ["Thủy Hải Sản Các Loại"]),
+]
+
+
 def read_category_rows(input_path):
     """Đọc file chi tiết ngành hàng, trả về dict tổng hợp:
     {
@@ -177,6 +189,7 @@ def read_category_rows(input_path):
     # gộp theo tên sản phẩm để không lặp dòng trùng
     btt_map = {}   # ten_sp -> {sl, thanh_tien}
     c2_map = {label: {"chai": 0.0, "thanh_tien": 0.0} for label, _ in C2_TARGETS}
+    nganh_hang_map = {}  # ten_nganh_hang -> thanh_tien (tổng doanh thu toàn bộ ngành hàng)
 
     for r in range(2, ws.max_row + 1):
         ten_sp = cell(r, "ten_sp")
@@ -206,6 +219,11 @@ def read_category_rows(input_path):
         # ---- NẤM ----
         if nhom_hang == "Nấm Các Loại":
             nam_total += thanh_tien
+
+        # ---- TỔNG DOANH THU THEO NGÀNH HÀNG (tất cả ngành hàng) ----
+        nganh_hang = str(cell(r, "nganh_hang") or "").strip()
+        if nganh_hang:
+            nganh_hang_map[nganh_hang] = nganh_hang_map.get(nganh_hang, 0.0) + thanh_tien
 
         # ---- BÁNH TRUNG THU ----
         if "TRUNG THU" in ten_sp_upper:
@@ -239,6 +257,11 @@ def read_category_rows(input_path):
         if v["chai"] > 0
     ]
 
+    nganh_hang_items = [
+        {"ten": label, "thanh_tien": sum(nganh_hang_map.get(name, 0.0) for name in source_names)}
+        for label, source_names in NGANH_HANG_GROUPS
+    ]
+
     return {
         "ngay": ngay_str,
         "ten_st": ten_st or "—",
@@ -252,5 +275,9 @@ def read_category_rows(input_path):
             "items": c2_items,
             "tong_chai": sum(i["chai"] for i in c2_items),
             "tong_tien": sum(i["thanh_tien"] for i in c2_items),
+        },
+        "nganh_hang": {
+            "items": nganh_hang_items,
+            "tong_tien": sum(i["thanh_tien"] for i in nganh_hang_items),
         },
     }
