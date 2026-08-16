@@ -9,6 +9,7 @@ Có 2 loại thẻ:
 """
 
 from datetime import datetime
+import math
 
 YELLOW = "#FFEE00"
 BLACK = "#1A1A1A"
@@ -331,7 +332,7 @@ def build_category_flex_message(ngay, ten_st, payload):
 
     c2 = payload["c2"]
     c2_items = [
-        (it["ten"], f"{_fmt_int(it['chai'])} chai", it.get("pct_ban_nhap"))
+        (it["ten"], f"{math.ceil(it['chai'] / 24)} thùng", it.get("pct_ban_nhap"))
         for it in c2["items"]
     ]
 
