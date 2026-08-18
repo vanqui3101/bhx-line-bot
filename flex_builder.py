@@ -494,13 +494,24 @@ def build_thuong_flex_message(ten_st, payload):
 
     # ---- C2 ----
     body_contents.extend(_thuong_section_title("Trà C2 (theo sản phẩm)", "500đ/chai (Freeze/Tắc/Sâm Cúc) · 1.000đ/chai (Olong 1L)"))
+    body_contents.append({
+        "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "6px", "margin": "sm",
+        "contents": [
+            {"type": "text", "text": "Sản phẩm", "size": "sm", "weight": "bold", "color": BLACK, "flex": 5},
+            {"type": "text", "text": "Thực tế", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+            {"type": "text", "text": "Dự kiến 31/8", "size": "sm", "weight": "bold", "color": BLACK, "flex": 4, "align": "center"},
+        ],
+    })
     for it in c2["items"]:
-        line = f"{it['chai_mtd']:,.0f} chai  →  ~{it['chai_proj']:,.0f} chai".replace(",", ".")
+        tt_text = f"{it['chai_mtd']:,.0f} chai".replace(",", ".")
+        dk_text = f"~{it['chai_proj']:,.0f} chai".replace(",", ".")
         body_contents.append({
-            "type": "box", "layout": "horizontal", "margin": "sm",
+            "type": "box", "layout": "horizontal", "paddingAll": "6px",
             "contents": [
                 {"type": "text", "text": it["ten"], "size": "sm", "color": BLACK, "flex": 5, "wrap": True},
-                {"type": "text", "text": line, "size": "xs", "weight": "bold", "color": RED, "flex": 6, "align": "end", "wrap": True},
+                {"type": "text", "text": tt_text, "size": "sm", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
+                {"type": "text", "text": dk_text, "size": "sm", "weight": "bold", "color": GREEN, "flex": 4, "align": "center", "wrap": True},
             ],
         })
     body_contents.append(_thuong_muc_box("Tổng thưởng C2 (dự kiến)", f"{_fmt_money(c2['tong_thuong_du_kien'])} đ"))
