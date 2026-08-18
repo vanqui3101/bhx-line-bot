@@ -19,6 +19,7 @@ GRAY_LIGHT = "#555555"
 DIVIDER = "#A8CCE0"
 ROW_BG = "#D7ECFA"
 PAGE_BG = "#C8E6F9"
+GREEN = "#1E8246"
 
 
 def _fmt_money(n):
@@ -85,7 +86,7 @@ def _delta_text(now, prev, pct):
     delta = now - prev
     sign = "+" if delta >= 0 else "-"
     arrow = _arrow(pct)
-    return f"{sign}{_fmt_money(abs(delta))} đ ({arrow}{abs(pct):.1f}%)"
+    return f"{sign}{_fmt_money(abs(delta))} đ ({arrow}{f'{abs(pct):.1f}'.replace('.', ',')}%)"
 
 
 def _metric_block(label, now_val, prev_val, big=False):
@@ -377,6 +378,158 @@ def build_category_flex_message(ngay, ten_st, payload):
             "layout": "vertical",
             "paddingAll": "16px",
             "backgroundColor": PAGE_BG,
+            "contents": body_contents,
+        },
+    }
+    return contents
+
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO THƯỞNG (FRESH + FMCG) — lệnh "TD" / "THƯỞNG"
+# ---------------------------------------------------------------------------
+
+def _thuong_table_header():
+    return {
+        "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "6px", "margin": "sm",
+        "contents": [
+            {"type": "text", "text": "", "size": "sm", "flex": 4},
+            {"type": "text", "text": "Base", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+            {"type": "text", "text": "Thực tế", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+            {"type": "text", "text": "Dự kiến", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+        ],
+    }
+
+
+def _thuong_table_row(label, base_text, thuc_te_text, du_kien_text):
+    return {
+        "type": "box", "layout": "horizontal", "paddingAll": "6px",
+        "contents": [
+            {"type": "text", "text": label, "size": "sm", "color": BLACK, "flex": 4, "wrap": True},
+            {"type": "text", "text": base_text, "size": "sm", "color": BLACK, "flex": 3, "align": "center", "wrap": True},
+            {"type": "text", "text": thuc_te_text, "size": "sm", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
+            {"type": "text", "text": du_kien_text, "size": "sm", "weight": "bold", "color": GREEN, "flex": 3, "align": "center", "wrap": True},
+        ],
+    }
+
+
+def _thuong_muc_box(label, gia_tri):
+    return {
+        "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "10px", "margin": "md", "cornerRadius": "8px",
+        "contents": [
+            {"type": "text", "text": label, "size": "sm", "weight": "bold", "color": BLACK, "flex": 6, "wrap": True},
+            {"type": "text", "text": gia_tri, "size": "md", "weight": "bold", "color": GREEN, "flex": 4, "align": "end"},
+        ],
+    }
+
+
+def _thuong_section_title(title, note):
+    contents = [{"type": "text", "text": title, "size": "lg", "weight": "bold", "color": BLACK}]
+    if note:
+        contents.append({"type": "text", "text": note, "size": "xs", "color": GRAY, "margin": "xs", "wrap": True})
+    return contents
+
+
+def build_thuong_flex_message(ten_st, payload):
+    ngay_bd = _fmt_date_display(payload["ngay_bat_dau"])
+    ngay_kt = _fmt_date_display(payload["ngay_ket_thuc"])
+    so_ngay = payload["so_ngay_da_qua"]
+    so_ngay_thang = payload["so_ngay_ca_thang"]
+
+    fresh = payload["fresh"]
+    skdm = payload["skdm"]
+    bianuoc = payload["bianuoc"]
+    c2 = payload["c2"]
+
+    body_contents = []
+
+    # ---- FRESH ----
+    body_contents.extend(_thuong_section_title("FRESH — Thịt heo/gà nhập khẩu", "So với TB tháng 5-6/2026"))
+    body_contents.append(_thuong_table_header())
+    body_contents.append(_thuong_table_row(
+        "Sản lượng", f"{fresh['base_kg']:,.1f} kg".replace(",", "."),
+        f"{fresh['thuc_te_kg']:,.1f} kg".replace(",", "."),
+        f"{fresh['du_kien_kg']:,.1f} kg".replace(",", "."),
+    ))
+    body_contents.append(_thuong_table_row(
+        "Tăng trưởng", "—", "—",
+        f"{fresh['pct']:+.1f}%".replace(".", ","),
+    ))
+    body_contents.append(_thuong_muc_box(f"Mức thưởng: {fresh['muc']}", f"{_fmt_money(fresh['thuong_du_kien'])} đ"))
+
+    body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
+
+    # ---- SKDM ----
+    body_contents.extend(_thuong_section_title("Sữa - Kem - Đông - Mát", "So với tháng 7/2026"))
+    body_contents.append(_thuong_table_header())
+    body_contents.append(_thuong_table_row(
+        "Doanh thu", f"{_fmt_money(skdm['base_tien'])} đ",
+        f"{_fmt_money(skdm['thuc_te_tien'])} đ",
+        f"{_fmt_money(skdm['du_kien_tien'])} đ",
+    ))
+    body_contents.append(_thuong_table_row(
+        "Tăng trưởng", "—", "—",
+        f"{skdm['pct']:+.1f}%".replace(".", ","),
+    ))
+    body_contents.append(_thuong_muc_box(f"Mức thưởng: {skdm['muc']}", f"{_fmt_money(skdm['thuong_du_kien'])} đ"))
+
+    body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
+
+    # ---- BIA-NUOC ----
+    body_contents.extend(_thuong_section_title("Bia - Nước", "So với tháng 6/2026 · Size ST < 2 tỷ"))
+    body_contents.append(_thuong_table_header())
+    body_contents.append(_thuong_table_row(
+        "Doanh thu", f"{_fmt_money(bianuoc['base_tien'])} đ",
+        f"{_fmt_money(bianuoc['thuc_te_tien'])} đ",
+        f"{_fmt_money(bianuoc['du_kien_tien'])} đ",
+    ))
+    body_contents.append(_thuong_table_row(
+        "Tăng trưởng", "—", "—",
+        f"{bianuoc['pct']:+.1f}%".replace(".", ","),
+    ))
+    body_contents.append(_thuong_muc_box(f"Mức thưởng: {bianuoc['muc']}", f"{_fmt_money(bianuoc['thuong_du_kien'])} đ"))
+
+    body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
+
+    # ---- C2 ----
+    body_contents.extend(_thuong_section_title("Trà C2 (theo sản phẩm)", "500đ/chai (Freeze/Tắc/Sâm Cúc) · 1.000đ/chai (Olong 1L)"))
+    for it in c2["items"]:
+        line = f"{it['chai_mtd']:,.0f} chai  →  ~{it['chai_proj']:,.0f} chai".replace(",", ".")
+        body_contents.append({
+            "type": "box", "layout": "horizontal", "margin": "sm",
+            "contents": [
+                {"type": "text", "text": it["ten"], "size": "sm", "color": BLACK, "flex": 5, "wrap": True},
+                {"type": "text", "text": line, "size": "xs", "weight": "bold", "color": RED, "flex": 6, "align": "end", "wrap": True},
+            ],
+        })
+    body_contents.append(_thuong_muc_box("Tổng thưởng C2 (dự kiến)", f"{_fmt_money(c2['tong_thuong_du_kien'])} đ"))
+
+    body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
+
+    # ---- TONG ----
+    body_contents.append({
+        "type": "box", "layout": "horizontal", "backgroundColor": GREEN, "cornerRadius": "10px",
+        "paddingAll": "14px", "margin": "lg",
+        "contents": [
+            {"type": "text", "text": "TỔNG THƯỞNG DỰ KIẾN", "size": "sm", "weight": "bold", "color": "#FFFFFF", "flex": 6, "wrap": True},
+            {"type": "text", "text": f"{_fmt_money(payload['tong_thuong_du_kien'])} đ", "size": "lg", "weight": "bold", "color": "#FFFFFF", "flex": 5, "align": "end"},
+        ],
+    })
+
+    contents = {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "BÁO CÁO THƯỞNG", "color": BLACK, "weight": "bold", "size": "md"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "lg", "margin": "sm", "wrap": True},
+                {"type": "text", "text": f"{ngay_bd} - {ngay_kt} ({so_ngay}/{so_ngay_thang} ngày)", "color": "#3D3200", "size": "md", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": PAGE_BG,
             "contents": body_contents,
         },
     }
