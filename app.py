@@ -46,9 +46,10 @@ from linebot.v3.messaging import (
 from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent
 
 from excel_reader import (
-    read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage, detect_file_type,
+    read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
+    read_thuong_period_rows, count_distinct_dates, detect_file_type,
 )
-from flex_builder import build_flex_message, build_category_flex_message
+from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
 import storage
 
@@ -73,6 +74,9 @@ DT_COMMAND_PATTERN = re.compile(
 )
 MTKM_COMMAND_PATTERN = re.compile(
     r"^\s*(mtkm|m[uụ]c\s*ti[eê]u\s*khuy[eế]n\s*m[aã]i)\s*$", re.IGNORECASE
+)
+TD_COMMAND_PATTERN = re.compile(
+    r"^\s*(td|th[uư][oở]ng)\s*$", re.IGNORECASE
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 
@@ -159,6 +163,20 @@ def build_category_report_message():
     return flex_message
 
 
+def build_thuong_report_message():
+    """Tạo flex_message báo cáo thưởng (FRESH + FMCG) mới nhất, hoặc None nếu chưa có dữ liệu."""
+    ten_st, payload, _gio = storage.get_latest_thuong_report()
+    if ten_st is None:
+        return None
+
+    bubble = build_thuong_flex_message(ten_st, payload)
+    flex_message = FlexMessage(
+        alt_text="Báo cáo thưởng FRESH + FMCG",
+        contents=FlexContainer.from_dict(bubble),
+    )
+    return flex_message
+
+
 # ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
@@ -201,19 +219,45 @@ def handle_file_message(event):
                 reply_text(messaging_api, event.reply_token, reply)
 
             elif file_type == "category":
-                payload = read_category_rows(tmp_path)
-                storage.save_category_report(
-                    payload["ngay"], payload["ten_st"], payload, _now_vn_time_str()
-                )
-                date_display = _dt.strptime(payload["ngay"], "%Y-%m-%d").strftime("%d/%m/%Y")
-                reply = (
-                    f"✅ Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}.\n"
-                    f"Nấm: {payload['nam']['doanh_thu']:,.0f} đ | "
-                    f"Bánh trung thu: {payload['banh_trung_thu']['tong_sl']:.0f} cái | "
-                    f"C2: {payload['c2']['tong_chai']:.0f} chai\n\n"
-                    f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo."
-                ).replace(",", ".")
-                reply_text(messaging_api, event.reply_token, reply)
+                so_ngay = count_distinct_dates(tmp_path)
+
+                if so_ngay >= 2:
+                    # File trai nhieu ngay (vd 01/08 -> hien tai) -> bao cao THUONG
+                    # + tu dong cap nhat luon MTKM bang du lieu cua NGAY GAN NHAT trong file
+                    thuong_payload = read_thuong_period_rows(tmp_path)
+                    storage.save_thuong_report(
+                        thuong_payload["ten_st"], thuong_payload, _now_vn_time_str()
+                    )
+
+                    mtkm_payload = read_category_rows(tmp_path, filter_date=thuong_payload["ngay_ket_thuc"])
+                    storage.save_category_report(
+                        mtkm_payload["ngay"], mtkm_payload["ten_st"], mtkm_payload, _now_vn_time_str()
+                    )
+
+                    ngay_bd_disp = _dt.strptime(thuong_payload["ngay_bat_dau"], "%Y-%m-%d").strftime("%d/%m")
+                    ngay_kt_disp = _dt.strptime(thuong_payload["ngay_ket_thuc"], "%Y-%m-%d").strftime("%d/%m")
+                    reply = (
+                        f"✅ Đã lưu dữ liệu THƯỞNG ({thuong_payload['so_ngay_da_qua']} ngày, "
+                        f"{ngay_bd_disp} - {ngay_kt_disp}) và cập nhật MTKM cho ngày {ngay_kt_disp}.\n"
+                        f"Tổng thưởng dự kiến: {thuong_payload['tong_thuong_du_kien']:,.0f} đ\n\n"
+                        f"Gõ \"TD\"/\"THƯỞNG\" hoặc \"MTKM\" để xem báo cáo tương ứng."
+                    ).replace(",", ".")
+                    reply_text(messaging_api, event.reply_token, reply)
+                else:
+                    # File 1 ngay -> bao cao nganh hang (MTKM) nhu cu
+                    payload = read_category_rows(tmp_path)
+                    storage.save_category_report(
+                        payload["ngay"], payload["ten_st"], payload, _now_vn_time_str()
+                    )
+                    date_display = _dt.strptime(payload["ngay"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    reply = (
+                        f"✅ Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}.\n"
+                        f"Nấm: {payload['nam']['doanh_thu']:,.0f} đ | "
+                        f"Bánh trung thu: {payload['banh_trung_thu']['tong_sl']:.0f} cái | "
+                        f"C2: {payload['c2']['tong_chai']:.0f} chai\n\n"
+                        f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo."
+                    ).replace(",", ".")
+                    reply_text(messaging_api, event.reply_token, reply)
 
             elif file_type == "stock":
                 stock_payload = read_stock_rows(tmp_path)
@@ -312,6 +356,28 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo ngành hàng: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+
+        # Lệnh TD / THƯỞNG — báo cáo thưởng FRESH + FMCG
+        if TD_COMMAND_PATTERN.match(text):
+            try:
+                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
+            except Exception:
+                traceback.print_exc()
+            try:
+                flex_message = build_thuong_report_message()
+                if flex_message is None:
+                    push_text(messaging_api, target_id, "Chưa có dữ liệu thưởng nào được lưu. Anh gửi file Excel doanh thu chi tiết (từ đầu tháng đến hiện tại) trước nhé.")
+                    return
+                messaging_api.push_message(
+                    PushMessageRequest(to=target_id, messages=[flex_message])
+                )
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo thưởng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
