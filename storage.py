@@ -220,3 +220,48 @@ def get_latest_stock_snapshot():
         return None, None, None
     ten_st, payload_json, gio = row
     return ten_st, json.loads(payload_json), gio
+
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO THƯỞNG (FRESH + FMCG) - mới thêm
+# ---------------------------------------------------------------------------
+
+def save_thuong_report(ten_st, payload, gio=None):
+    """Lưu (ghi đè) báo cáo thưởng mới nhất của 1 siêu thị."""
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS thuong_reports (
+            ten_st TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            gio TEXT
+        )
+    """)
+    with conn:
+        conn.execute("""
+            INSERT INTO thuong_reports (ten_st, payload_json, gio)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ten_st) DO UPDATE SET
+                payload_json=excluded.payload_json,
+                gio=excluded.gio
+        """, (ten_st, json.dumps(payload, ensure_ascii=False), gio))
+    conn.close()
+
+
+def get_latest_thuong_report():
+    """Trả về (ten_st, payload_dict, gio) báo cáo thưởng mới nhất,
+    hoặc (None, None, None) nếu chưa có dữ liệu."""
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS thuong_reports (
+            ten_st TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            gio TEXT
+        )
+    """)
+    cur = conn.execute("SELECT ten_st, payload_json, gio FROM thuong_reports ORDER BY rowid DESC LIMIT 1")
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None, None, None
+    ten_st, payload_json, gio = row
+    return ten_st, json.loads(payload_json), gio
