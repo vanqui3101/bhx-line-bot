@@ -393,7 +393,7 @@ def _thuong_table_header():
         "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
         "paddingAll": "6px", "margin": "sm",
         "contents": [
-            {"type": "text", "text": "", "size": "sm", "flex": 4},
+            {"type": "text", "text": "Chỉ tiêu", "size": "sm", "flex": 4},
             {"type": "text", "text": "Base", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
             {"type": "text", "text": "Thực tế", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
             {"type": "text", "text": "Dự kiến", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
