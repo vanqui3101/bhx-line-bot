@@ -688,3 +688,62 @@ def read_thuong_period_rows(input_path):
         },
         "tong_thuong_du_kien": tong_thuong_du_kien,
     }
+
+
+# ---------------------------------------------------------------------------
+# LỊCH HỖ TRỢ SIÊU THỊ KHÁC (Ngày | Tên | Ca làm) - mới thêm
+# ---------------------------------------------------------------------------
+
+SCHEDULE_COL_NAMES = {"ngay": "Ngày", "ten": "Tên", "ca": "Ca làm"}
+
+
+def is_schedule_file(input_path):
+    """Kiểm tra nhanh xem file có phải file 'lịch hỗ trợ' (Ngày/Tên/Ca làm) không."""
+    wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
+    ws = wb.worksheets[0]
+    headers = set(_header_row(ws))
+    wb.close()
+    return {"Ngày", "Tên", "Ca làm"}.issubset(headers)
+
+
+def read_schedule_rows(input_path, default_year=None):
+    """Đọc file lịch hỗ trợ (cột Ngày | Tên | Ca làm). Trả về list dict
+    {"ngay": "YYYY-MM-DD", "ten": "...", "ca": "..."} — bỏ qua dòng trống."""
+    wb = openpyxl.load_workbook(input_path, data_only=True)
+    ws = wb.worksheets[0]
+    header_row = list(ws[1])
+    col_idx = {k: _find_col_index(header_row, v) for k, v in SCHEDULE_COL_NAMES.items()}
+    missing = [k for k, v in col_idx.items() if v is None]
+    if missing:
+        raise ValueError(f"Không tìm thấy các cột: {[SCHEDULE_COL_NAMES[m] for m in missing]}.")
+
+    if default_year is None:
+        default_year = datetime.now().year
+
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        ten = ws.cell(row=r, column=col_idx["ten"]).value
+        ngay_val = ws.cell(row=r, column=col_idx["ngay"]).value
+        if not ten or not ngay_val:
+            continue
+        if isinstance(ngay_val, datetime):
+            ngay_str = ngay_val.strftime("%Y-%m-%d")
+        else:
+            s = str(ngay_val).strip()
+            parts = s.replace("-", "/").split("/")
+            if len(parts) == 2:
+                day, month = int(parts[0]), int(parts[1])
+                ngay_str = f"{default_year:04d}-{month:02d}-{day:02d}"
+            elif len(parts) == 3:
+                day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                if year < 100:
+                    year += 2000
+                ngay_str = f"{year:04d}-{month:02d}-{day:02d}"
+            else:
+                continue
+        ca_val = ws.cell(row=r, column=col_idx["ca"]).value
+        rows.append({"ngay": ngay_str, "ten": str(ten).strip(), "ca": str(ca_val).strip() if ca_val else ""})
+
+    if not rows:
+        raise ValueError("Không tìm thấy dòng dữ liệu nào trong file lịch hỗ trợ.")
+    return rows
