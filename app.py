@@ -26,9 +26,13 @@ import os
 import re
 import uuid
 import traceback
+import requests
+import json
 from datetime import datetime as _dt
 
 from flask import Flask, request, abort, send_from_directory
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
@@ -48,6 +52,7 @@ from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageCon
 from excel_reader import (
     read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
+    is_schedule_file, read_schedule_rows,
 )
 from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
@@ -57,6 +62,20 @@ CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
+# Lịch hỗ trợ siêu thị khác mặc định (nạp sẵn nếu chưa có file nào được gửi lên).
+# Anh có thể gửi file Excel mới (cột Ngày | Tên | Ca làm) bất cứ lúc nào để thay lịch này.
+DEFAULT_SUPPORT_SCHEDULE = [
+    {"ngay": "2026-08-20", "ten": "QUYÊN", "ca": "123"},
+    {"ngay": "2026-08-21", "ten": "ÁNH", "ca": "456"},
+    {"ngay": "2026-08-23", "ten": "THI", "ca": "123"},
+    {"ngay": "2026-08-24", "ten": "MI", "ca": "456"},
+    {"ngay": "2026-08-25", "ten": "LINH", "ca": "123"},
+    {"ngay": "2026-08-26", "ten": "SANG", "ca": "456"},
+    {"ngay": "2026-08-27", "ten": "ÁNH", "ca": "123"},
+    {"ngay": "2026-08-28", "ten": "QUYÊN", "ca": "456"},
+]
+storage.ensure_default_schedule(DEFAULT_SUPPORT_SCHEDULE)
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
@@ -178,6 +197,331 @@ def build_thuong_report_message():
 
 
 # ---------------------------------------------------------------------------
+# NHẮC LỊCH HỖ TRỢ SIÊU THỊ KHÁC — tự động tag đúng người lúc 20h & 21h
+# ---------------------------------------------------------------------------
+
+def refresh_group_members(group_id):
+    """Lấy toàn bộ thành viên nhóm LINE (user_id + tên hiển thị) qua API,
+    lưu lại làm danh bạ để dùng tag (@mention). Không cần ai gõ lệnh gì cả —
+    hàm này tự chạy mỗi khi cần gửi nhắc."""
+    if not group_id:
+        return
+    try:
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            member_ids = []
+            start = None
+            while True:
+                if start:
+                    resp = messaging_api.get_group_members_ids(group_id, start=start)
+                else:
+                    resp = messaging_api.get_group_members_ids(group_id)
+                member_ids.extend(resp.member_ids)
+                start = getattr(resp, "next", None)
+                if not start:
+                    break
+
+            members = []
+            for uid in member_ids:
+                try:
+                    profile = messaging_api.get_group_member_profile(group_id, uid)
+                    members.append((uid, profile.display_name))
+                except Exception:
+                    traceback.print_exc()
+
+            if members:
+                storage.save_group_members(members)
+    except Exception:
+        traceback.print_exc()
+
+
+def _find_user_id_by_name(ten):
+    """Tìm user_id trong danh bạ nhóm khớp với TÊN trong lịch (so khớp không
+    phân biệt hoa/thường, chỉ cần tên nằm trong tên hiển thị LINE)."""
+    ten_norm = ten.strip().upper()
+    for user_id, display_name in storage.get_all_group_members():
+        if ten_norm in display_name.strip().upper():
+            return user_id, display_name
+    return None, None
+
+
+def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
+    """Gửi tin nhắn có TAG THẬT (@tên) vào nhóm — dùng thẳng LINE API vì
+    tính năng mention cần định dạng JSON đặc biệt (mention.mentionees)."""
+    prefix = "Nhắc "
+    mention_text = f"@{display_name}"
+    ca_text = f" ca {ca}" if ca else ""
+    suffix = f" ngày {ngay_hien_thi} có lịch đi hỗ trợ siêu thị khác{ca_text}."
+    full_text = prefix + mention_text + suffix
+
+    body = {
+        "to": group_id,
+        "messages": [
+            {
+                "type": "text",
+                "text": full_text,
+                "mention": {
+                    "mentionees": [
+                        {
+                            "index": len(prefix),
+                            "length": len(mention_text),
+                            "type": "user",
+                            "userId": user_id,
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    resp = requests.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
+        },
+        json=body,
+
+        timeout=15,
+    )
+    if resp.status_code >= 300:
+        print("Loi gui tin nhac lich ho tro:", resp.status_code, resp.text)
+
+
+def send_support_reminder(gio_nhac):
+    """Kiểm tra lịch hỗ trợ của NGÀY MAI (nhắc trước 1 ngày, tối hôm trước),
+    nếu có người thì tag nhắc vào nhóm.
+    gio_nhac: '20h' hoặc '21h' — chỉ để tránh gửi trùng trong cùng khung giờ."""
+    if not GROUP_ID:
+        return
+    try:
+        from zoneinfo import ZoneInfo
+        now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    except Exception:
+        now_vn = _dt.now()
+
+    from datetime import timedelta
+    ngay_mai = now_vn + timedelta(days=1)
+    ngay_str = ngay_mai.strftime("%Y-%m-%d")
+    log_key = ngay_str  # log theo ngày được nhắc (ngày mai), tránh gửi trùng
+
+    if storage.da_nhac_chua(log_key, gio_nhac):
+        return
+
+    row = storage.get_schedule_for_date(ngay_str)
+    if not row:
+        return
+    ten, ca = row
+
+    refresh_group_members(GROUP_ID)
+    user_id, display_name = _find_user_id_by_name(ten)
+    if not user_id:
+        print(f"Khong tim thay '{ten}' trong danh ba nhom de tag.")
+        return
+
+    try:
+        ngay_hien_thi = ngay_mai.strftime("%d/%m")
+        _push_mention_message(GROUP_ID, display_name, user_id, ngay_hien_thi, ca)
+        storage.danh_dau_da_nhac(log_key, gio_nhac)
+    except Exception:
+        traceback.print_exc()
+
+
+# ---------------------------------------------------------------------------
+# NHẮC THEO BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN / FRESH / FMCG)
+# ---------------------------------------------------------------------------
+
+NOI_DUNG_THU_NGAN_FRESH = "Tận dụng từng lượt khách tập trung tư vấn khuyến mãi giúp em"
+NOI_DUNG_FMCG_CHIEU = "Xử lí nhanh hàng kho trung tâm, chỉnh chu kệ, dọn kho"
+
+
+def _is_phan_line_message(text):
+    tu = text.upper()
+    return "THU NGÂN" in tu and "FMCG" in tu
+
+
+def _parse_phan_line(text, mentionees):
+    """Tách bài phân line thành dữ liệu theo ca (sáng/chiều) x nhóm
+    (thu_ngan_fresh / fmcg). mentionees: list các object có .index, .length,
+    .user_id (lấy từ event.message.mention.mentionees, tin nhắn LINE gốc)."""
+    lines = text.split("\n")
+
+    # tinh vi tri (offset ky tu) bat dau cua tung dong trong text goc
+    offsets = []
+    pos = 0
+    for line in lines:
+        offsets.append(pos)
+        pos += len(line) + 1  # +1 cho ky tu xuong dong
+
+    data = {
+        "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
+        "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
+    }
+
+    current_ca = "sang"
+    current_group = "thu_ngan_fresh"
+
+    for i, line in enumerate(lines):
+        line_upper = line.strip().upper()
+        line_start = offsets[i]
+        line_end = line_start + len(line)
+
+        is_header = False
+        if "THU NGÂN" in line_upper:
+            is_header = True
+            current_group = "thu_ngan_fresh"
+            if "CHIỀU" in line_upper or "CHIEU" in line_upper:
+                current_ca = "chieu"
+            elif "SÁNG" in line_upper or "SANG" in line_upper:
+                current_ca = "sang"
+        elif line_upper.startswith("FRESH"):
+            is_header = True
+            current_group = "thu_ngan_fresh"
+        elif line_upper.startswith("FMCG"):
+            is_header = True
+            current_group = "fmcg"
+
+        # tim mention nam trong dong nay
+        line_has_mention = False
+        for m in mentionees:
+            m_index = getattr(m, "index", None)
+            m_uid = getattr(m, "user_id", None) or getattr(m, "userId", None)
+            if m_index is None or m_uid is None:
+                continue
+            if line_start <= m_index < line_end:
+                line_has_mention = True
+                bucket = data[current_ca][f"{current_group}_users"]
+                if m_uid not in bucket:
+                    bucket.append(m_uid)
+
+        if is_header or line_has_mention:
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if current_group == "fmcg":
+            data[current_ca]["fmcg_text_lines"].append(stripped)
+
+    for ca in ("sang", "chieu"):
+        data[ca]["fmcg_text"] = "\n".join(data[ca]["fmcg_text_lines"])
+        del data[ca]["fmcg_text_lines"]
+
+    return data
+
+
+def _get_display_name(group_id, user_id):
+    try:
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            profile = messaging_api.get_group_member_profile(group_id, user_id)
+            return profile.display_name
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def _push_mention_many(group_id, content, user_ids):
+    """Gửi 1 tin nhắn có nội dung + tag thật NHIỀU người cùng lúc."""
+    if not user_ids:
+        return
+    names = []
+    for uid in user_ids:
+        name = _get_display_name(group_id, uid)
+        if name:
+            names.append((uid, name))
+    if not names:
+        return
+
+    text = content + "\n"
+    mentionees = []
+    for uid, name in names:
+        mention_text = f"@{name} "
+        idx = len(text)
+        mentionees.append({
+            "index": idx, "length": len(mention_text.rstrip()), "type": "user", "userId": uid,
+        })
+        text += mention_text
+
+    body = {
+        "to": group_id,
+        "messages": [{"type": "text", "text": text.rstrip(), "mention": {"mentionees": mentionees}}],
+    }
+    resp = requests.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
+        },
+        json=body,
+        timeout=15,
+    )
+    if resp.status_code >= 300:
+        print("Loi gui tin nhac phan line:", resp.status_code, resp.text)
+
+
+def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
+    """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
+    Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
+    if not GROUP_ID:
+        return
+    try:
+        from zoneinfo import ZoneInfo
+        now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    except Exception:
+        now_vn = _dt.now()
+    ngay_str = now_vn.strftime("%Y-%m-%d")
+
+    if storage.da_nhac_phanline(ngay_str, slot):
+        return
+
+    data = storage.get_phan_line(ngay_str)
+    if not data:
+        return
+
+    ca_data = data.get(ca, {})
+    user_ids = ca_data.get(f"{group}_users", [])
+    if not user_ids:
+        return
+
+    if noi_dung_co_dinh is not None:
+        noi_dung = noi_dung_co_dinh
+    else:
+        noi_dung = ca_data.get("fmcg_text") or "Xử lí công việc FMCG hôm nay giúp em."
+
+    try:
+        _push_mention_many(GROUP_ID, noi_dung, user_ids)
+        storage.danh_dau_da_nhac_phanline(ngay_str, slot)
+    except Exception:
+        traceback.print_exc()
+
+
+scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
+scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0))
+scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0))
+
+# Ca sáng: THU NGÂN + FRESH -> 8h, 11h
+scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", NOI_DUNG_THU_NGAN_FRESH),
+                   CronTrigger(hour=8, minute=0))
+scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", NOI_DUNG_THU_NGAN_FRESH),
+                   CronTrigger(hour=11, minute=0))
+# Ca chiều: THU NGÂN + FRESH -> 15h, 17h, 19h
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", NOI_DUNG_THU_NGAN_FRESH),
+                   CronTrigger(hour=15, minute=0))
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", NOI_DUNG_THU_NGAN_FRESH),
+                   CronTrigger(hour=17, minute=0))
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", NOI_DUNG_THU_NGAN_FRESH),
+                   CronTrigger(hour=19, minute=0))
+# FMCG sáng -> 10h (dùng đúng nội dung anh viết trong bài)
+scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h", None),
+                   CronTrigger(hour=10, minute=0))
+# FMCG chiều -> 19h (nội dung cố định)
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
+                   CronTrigger(hour=19, minute=0))
+
+scheduler.start()
+
+
+# ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
 
@@ -200,6 +544,14 @@ def handle_file_message(event):
             content = blob_api.get_message_content(message_id)
             with open(tmp_path, "wb") as f:
                 f.write(content)
+
+            if is_schedule_file(tmp_path):
+                schedule_rows = read_schedule_rows(tmp_path)
+                storage.save_support_schedule_rows(schedule_rows)
+                so_dong = len(schedule_rows)
+                reply = f"✅ Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC ({so_dong} dòng). Bot sẽ tự nhắc đúng người vào 20h và 21h mỗi ngày."
+                reply_text(messaging_api, event.reply_token, reply)
+                return
 
             file_type = detect_file_type(tmp_path)
 
@@ -306,6 +658,27 @@ def handle_text_message(event):
             target_id = event.source.group_id
         else:
             target_id = getattr(event.source, "user_id", None)
+
+        # Bài PHÂN LINE hàng ngày (THU NGÂN / FRESH / FMCG) — tự nhận diện,
+        # KHÔNG cần lệnh gì cả. Chỉ xử lý khi gõ trong nhóm (cần group_id để
+        # tra tên hiển thị + tag lại sau này).
+        if source_type == "group" and _is_phan_line_message(text):
+            try:
+                mention_obj = getattr(event.message, "mention", None)
+                mentionees = getattr(mention_obj, "mentionees", []) if mention_obj else []
+                data = _parse_phan_line(text, mentionees)
+                try:
+                    from zoneinfo import ZoneInfo
+                    now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+                except Exception:
+                    now_vn = _dt.now()
+                ngay_str = now_vn.strftime("%Y-%m-%d")
+                storage.save_phan_line(ngay_str, data)
+                reply_text(messaging_api, event.reply_token,
+                           "✅ Đã lưu bài phân line hôm nay, bot sẽ tự nhắc đúng giờ cho từng nhóm.")
+            except Exception:
+                traceback.print_exc()
+            return
 
         # Lệnh lấy Group ID
         if GROUP_ID_COMMAND_PATTERN.match(text):
