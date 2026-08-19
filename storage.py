@@ -265,3 +265,166 @@ def get_latest_thuong_report():
         return None, None, None
     ten_st, payload_json, gio = row
     return ten_st, json.loads(payload_json), gio
+
+
+# ---------------------------------------------------------------------------
+# NHẮC LỊCH HỖ TRỢ SIÊU THỊ KHÁC - mới thêm
+# ---------------------------------------------------------------------------
+
+def _connect_support():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            user_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS support_schedule (
+            ngay TEXT PRIMARY KEY,
+            ten TEXT NOT NULL,
+            ca TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS support_reminder_log (
+            ngay TEXT NOT NULL,
+            gio_nhac TEXT NOT NULL,
+            PRIMARY KEY (ngay, gio_nhac)
+        )
+    """)
+    return conn
+
+
+def save_group_members(members):
+    """Ghi đè toàn bộ danh bạ thành viên nhóm. members: list các (user_id, display_name)."""
+    conn = _connect_support()
+    with conn:
+        conn.execute("DELETE FROM group_members")
+        conn.executemany(
+            "INSERT INTO group_members (user_id, display_name) VALUES (?, ?)",
+            members,
+        )
+    conn.close()
+
+
+def get_all_group_members():
+    conn = _connect_support()
+    cur = conn.execute("SELECT user_id, display_name FROM group_members")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def save_support_schedule_rows(rows):
+    """Lưu (upsert) lịch hỗ trợ. rows: list dict {ngay, ten, ca}."""
+    conn = _connect_support()
+    with conn:
+        for r in rows:
+            conn.execute("""
+                INSERT INTO support_schedule (ngay, ten, ca) VALUES (:ngay, :ten, :ca)
+                ON CONFLICT(ngay) DO UPDATE SET ten=excluded.ten, ca=excluded.ca
+            """, r)
+    conn.close()
+
+
+def ensure_default_schedule(default_rows):
+    """Nếu bảng lịch hỗ trợ đang trống, nạp sẵn danh sách mặc định (default_rows)."""
+    conn = _connect_support()
+    cur = conn.execute("SELECT COUNT(*) FROM support_schedule")
+    count = cur.fetchone()[0]
+    conn.close()
+    if count == 0:
+        save_support_schedule_rows(default_rows)
+
+
+def get_schedule_for_date(ngay):
+    """Trả về (ten, ca) cho đúng ngày (YYYY-MM-DD), hoặc None nếu không có ai."""
+    conn = _connect_support()
+    cur = conn.execute("SELECT ten, ca FROM support_schedule WHERE ngay = ?", (ngay,))
+    row = cur.fetchone()
+    conn.close()
+    return row if row else None
+
+
+def da_nhac_chua(ngay, gio_nhac):
+    """Kiểm tra đã gửi nhắc cho (ngay, gio_nhac) này chưa — tránh gửi trùng."""
+    conn = _connect_support()
+    cur = conn.execute(
+        "SELECT 1 FROM support_reminder_log WHERE ngay = ? AND gio_nhac = ?", (ngay, gio_nhac)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def danh_dau_da_nhac(ngay, gio_nhac):
+    conn = _connect_support()
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO support_reminder_log (ngay, gio_nhac) VALUES (?, ?)",
+            (ngay, gio_nhac),
+        )
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN/FRESH/FMCG) - mới thêm
+# ---------------------------------------------------------------------------
+
+def _connect_phanline():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS phan_line (
+            ngay TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS phan_line_reminder_log (
+            ngay TEXT NOT NULL,
+            slot TEXT NOT NULL,
+            PRIMARY KEY (ngay, slot)
+        )
+    """)
+    return conn
+
+
+def save_phan_line(ngay, data):
+    """Lưu (ghi đè) bài phân line của 1 ngày. data là dict."""
+    conn = _connect_phanline()
+    with conn:
+        conn.execute("""
+            INSERT INTO phan_line (ngay, data_json) VALUES (?, ?)
+            ON CONFLICT(ngay) DO UPDATE SET data_json=excluded.data_json
+        """, (ngay, json.dumps(data, ensure_ascii=False)))
+    conn.close()
+
+
+def get_phan_line(ngay):
+    """Trả về dict bài phân line của ngày đó, hoặc None nếu chưa có."""
+    conn = _connect_phanline()
+    cur = conn.execute("SELECT data_json FROM phan_line WHERE ngay = ?", (ngay,))
+    row = cur.fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
+
+
+def da_nhac_phanline(ngay, slot):
+    conn = _connect_phanline()
+    cur = conn.execute(
+        "SELECT 1 FROM phan_line_reminder_log WHERE ngay = ? AND slot = ?", (ngay, slot)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+def danh_dau_da_nhac_phanline(ngay, slot):
+    conn = _connect_phanline()
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO phan_line_reminder_log (ngay, slot) VALUES (?, ?)",
+            (ngay, slot),
+        )
+    conn.close()
