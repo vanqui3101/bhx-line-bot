@@ -330,7 +330,15 @@ def send_support_reminder(gio_nhac):
 # NHẮC THEO BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN / FRESH / FMCG)
 # ---------------------------------------------------------------------------
 
-NOI_DUNG_THU_NGAN_FRESH = "Tận dụng từng lượt khách tập trung tư vấn khuyến mãi giúp em"
+def _noi_dung_thu_ngan_fresh(ca):
+    cho = "sáng" if ca == "sang" else "chiều"
+    return (
+        "Team bám sát mục tiêu tập trung tư vấn khuyến mãi giúp em\n"
+        f"Tận dụng từng lượt khách chợ {cho}\n"
+        "Cảm ơn Anh/Chị"
+    )
+
+
 NOI_DUNG_FMCG_CHIEU = "Xử lí nhanh hàng kho trung tâm, chỉnh chu kệ, dọn kho"
 
 
@@ -435,16 +443,17 @@ def _push_mention_many(group_id, content, user_ids):
     text = content + "\n"
     mentionees = []
     for uid, name in names:
-        mention_text = f"@{name} "
+        mention_text = f"@{name}"
         idx = len(text)
         mentionees.append({
-            "index": idx, "length": len(mention_text.rstrip()), "type": "user", "userId": uid,
+            "index": idx, "length": len(mention_text), "type": "user", "userId": uid,
         })
-        text += mention_text
+        text += mention_text + "\n"
+    final_text = text.rstrip("\n")
 
     body = {
         "to": group_id,
-        "messages": [{"type": "text", "text": text.rstrip(), "mention": {"mentionees": mentionees}}],
+        "messages": [{"type": "text", "text": final_text, "mention": {"mentionees": mentionees}}],
     }
     resp = requests.post(
         "https://api.line.me/v2/bot/message/push",
@@ -484,7 +493,7 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
         return
 
     if noi_dung_co_dinh is not None:
-        noi_dung = noi_dung_co_dinh
+        noi_dung = noi_dung_co_dinh(ca) if callable(noi_dung_co_dinh) else noi_dung_co_dinh
     else:
         noi_dung = ca_data.get("fmcg_text") or "Xử lí công việc FMCG hôm nay giúp em."
 
@@ -500,16 +509,16 @@ scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, min
 scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0))
 
 # Ca sáng: THU NGÂN + FRESH -> 8h, 11h
-scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", NOI_DUNG_THU_NGAN_FRESH),
+scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=8, minute=0))
-scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", NOI_DUNG_THU_NGAN_FRESH),
+scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=11, minute=0))
 # Ca chiều: THU NGÂN + FRESH -> 15h, 17h, 19h
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", NOI_DUNG_THU_NGAN_FRESH),
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=15, minute=0))
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", NOI_DUNG_THU_NGAN_FRESH),
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=17, minute=0))
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", NOI_DUNG_THU_NGAN_FRESH),
+scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=19, minute=0))
 # FMCG sáng -> 10h (dùng đúng nội dung anh viết trong bài)
 scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h", None),
@@ -675,7 +684,7 @@ def handle_text_message(event):
                 ngay_str = now_vn.strftime("%Y-%m-%d")
                 storage.save_phan_line(ngay_str, data)
                 reply_text(messaging_api, event.reply_token,
-                           "✅ Đã lưu bài phân line hôm nay, bot sẽ tự nhắc đúng giờ cho từng nhóm.")
+                           "Em nhận line này rồi để em nhắc mấy anh/chị bám sát mục tiêu ngày để hoàn tất tốt mục tiêu anh ạ")
             except Exception:
                 traceback.print_exc()
             return
