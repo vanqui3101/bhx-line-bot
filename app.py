@@ -422,8 +422,10 @@ def _get_display_name(group_id, user_id):
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
             profile = messaging_api.get_group_member_profile(group_id, user_id)
+            print(f"[PHANLINE-DEBUG] lay ten thanh cong cho {user_id}: {profile.display_name}")
             return profile.display_name
-    except Exception:
+    except Exception as e:
+        print(f"[PHANLINE-DEBUG] LOI khi lay ten cho user_id={user_id}: {e}")
         traceback.print_exc()
         return None
 
@@ -471,7 +473,9 @@ def _push_mention_many(group_id, content, user_ids):
 def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
     Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
+    print(f"[PHANLINE-DEBUG] scheduler chay slot={slot} ca={ca} group={group}")
     if not GROUP_ID:
+        print("[PHANLINE-DEBUG] khong co GROUP_ID -> bo qua")
         return
     try:
         from zoneinfo import ZoneInfo
@@ -481,15 +485,19 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     ngay_str = now_vn.strftime("%Y-%m-%d")
 
     if storage.da_nhac_phanline(ngay_str, slot):
+        print(f"[PHANLINE-DEBUG] slot {slot} ngay {ngay_str} da gui roi -> bo qua")
         return
 
     data = storage.get_phan_line(ngay_str)
     if not data:
+        print(f"[PHANLINE-DEBUG] khong co du lieu phan line cho ngay {ngay_str} -> bo qua")
         return
 
     ca_data = data.get(ca, {})
     user_ids = ca_data.get(f"{group}_users", [])
+    print(f"[PHANLINE-DEBUG] user_ids cho ca={ca} group={group}: {user_ids}")
     if not user_ids:
+        print("[PHANLINE-DEBUG] danh sach user_ids rong -> bo qua, khong gui gi")
         return
 
     if noi_dung_co_dinh is not None:
@@ -500,6 +508,7 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     try:
         _push_mention_many(GROUP_ID, noi_dung, user_ids)
         storage.danh_dau_da_nhac_phanline(ngay_str, slot)
+        print(f"[PHANLINE-DEBUG] da gui xong slot={slot}")
     except Exception:
         traceback.print_exc()
 
@@ -674,8 +683,20 @@ def handle_text_message(event):
         if source_type == "group" and _is_phan_line_message(text):
             try:
                 mention_obj = getattr(event.message, "mention", None)
-                mentionees = getattr(mention_obj, "mentionees", []) if mention_obj else []
+                print(f"[PHANLINE-DEBUG] raw event.message = {event.message}")
+                print(f"[PHANLINE-DEBUG] mention_obj = {mention_obj!r} (type={type(mention_obj)})")
+                mentionees = getattr(mention_obj, "mentionees", None) if mention_obj else None
+                if mentionees is None:
+                    mentionees = []
+                print(f"[PHANLINE-DEBUG] so mentionees tim thay: {len(mentionees)}")
+                for i, m in enumerate(mentionees):
+                    print(f"[PHANLINE-DEBUG] mentionee[{i}] = {m!r} "
+                          f"(index={getattr(m,'index',None)}, "
+                          f"user_id={getattr(m,'user_id',None)}, "
+                          f"userId={getattr(m,'userId',None)}, "
+                          f"type_field={getattr(m,'type',None)})")
                 data = _parse_phan_line(text, mentionees)
+                print(f"[PHANLINE-DEBUG] ket qua tach: {json.dumps(data, ensure_ascii=False)}")
                 try:
                     from zoneinfo import ZoneInfo
                     now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
