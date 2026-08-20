@@ -536,6 +536,31 @@ scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h"
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
                    CronTrigger(hour=19, minute=0))
 
+# ---- LỊCH TEST KHẨN CẤP (tạm thời, để debug ngay hôm nay) ----
+# Bắt đầu 15h40, lặp lại mỗi 35 phút — dùng đúng nội dung/dữ liệu ca chiều
+# THU NGÂN+FRESH thật, chỉ khác là dùng slot-key riêng mỗi lần nên không bị
+# chặn gửi trùng như bản chính thức. Có thể xoá khối này sau khi hết debug.
+def _test_phanline_reminder():
+    try:
+        from zoneinfo import ZoneInfo
+        now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    except Exception:
+        now_vn = _dt.now()
+    slot_test = f"test_{now_vn.strftime('%H%M')}"
+    print(f"[PHANLINE-DEBUG] === CHAY LICH TEST KHAN CAP, slot={slot_test} ===")
+    send_phanline_reminder("chieu", "thu_ngan_fresh", slot_test, _noi_dung_thu_ngan_fresh)
+
+
+_test_start = _dt(2026, 8, 20, 15, 40, 0)
+try:
+    from zoneinfo import ZoneInfo as _ZI
+    _test_start = _test_start.replace(tzinfo=_ZI("Asia/Ho_Chi_Minh"))
+except Exception:
+    pass
+
+from apscheduler.triggers.interval import IntervalTrigger
+scheduler.add_job(_test_phanline_reminder, IntervalTrigger(minutes=35, start_date=_test_start))
+
 scheduler.start()
 
 
