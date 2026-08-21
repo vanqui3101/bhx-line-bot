@@ -428,3 +428,65 @@ def danh_dau_da_nhac_phanline(ngay, slot):
             (ngay, slot),
         )
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# XOAY VÒNG PHÂN LINE TỰ ĐỘNG - mới thêm
+# ---------------------------------------------------------------------------
+
+def _connect_rotation():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rotation_state (
+            candidates_key TEXT PRIMARY KEY,
+            next_index INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ca_schedule (
+            ngay TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL
+        )
+    """)
+    return conn
+
+
+def get_rotation_index(candidates_key):
+    conn = _connect_rotation()
+    cur = conn.execute("SELECT next_index FROM rotation_state WHERE candidates_key = ?", (candidates_key,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+def advance_rotation_index(candidates_key, total):
+    conn = _connect_rotation()
+    with conn:
+        cur = conn.execute("SELECT next_index FROM rotation_state WHERE candidates_key = ?", (candidates_key,))
+        row = cur.fetchone()
+        idx = row[0] if row else 0
+        new_idx = (idx + 1) % total if total else 0
+        conn.execute("""
+            INSERT INTO rotation_state (candidates_key, next_index) VALUES (?, ?)
+            ON CONFLICT(candidates_key) DO UPDATE SET next_index=excluded.next_index
+        """, (candidates_key, new_idx))
+    conn.close()
+    return idx
+
+
+def save_ca_schedule(ngay, data):
+    conn = _connect_rotation()
+    with conn:
+        conn.execute("""
+            INSERT INTO ca_schedule (ngay, data_json) VALUES (?, ?)
+            ON CONFLICT(ngay) DO UPDATE SET data_json=excluded.data_json
+        """, (ngay, json.dumps(data, ensure_ascii=False)))
+    conn.close()
+
+
+def get_ca_schedule(ngay):
+    conn = _connect_rotation()
+    cur = conn.execute("SELECT data_json FROM ca_schedule WHERE ngay = ?", (ngay,))
+    row = cur.fetchone()
+    conn.close()
+    return json.loads(row[0]) if row else None
