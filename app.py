@@ -604,7 +604,7 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
     print(f"[CAVIEC3-DEBUG] da luu phan_line cho {target_date_str}")
 
 
-
+def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
     Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
     print(f"[PHANLINE-DEBUG] scheduler chay slot={slot} ca={ca} group={group}")
@@ -715,7 +715,7 @@ def _test_nhac_phan_line_224():
 
 
 from apscheduler.triggers.date import DateTrigger
-_gio_tao_bai = _dt(2026, 8, 21, 15, 25, 0)
+_gio_tao_bai = _dt(2026, 8, 21, 22, 3, 0)
 _gio_nhac_thu = _dt(2026, 8, 21, 15, 30, 0)
 try:
     from zoneinfo import ZoneInfo as _ZI2
@@ -759,9 +759,7 @@ def handle_file_message(event):
                 ca_data = read_ca_schedule(tmp_path)
                 for ngay, roster in ca_data.items():
                     storage.save_ca_schedule(ngay, roster)
-                so_ngay = len(ca_data)
-                reply = f"✅ Đã lưu LỊCH PHÂN CA ({so_ngay} ngày). Bot sẽ tự tạo bài phân line và nhắc đúng người mỗi ngày."
-                reply_text(messaging_api, event.reply_token, reply)
+                print(f"[CAVIEC3-DEBUG] Da luu LICH PHAN CA ({len(ca_data)} ngay), khong tra loi theo yeu cau anh Qui.")
                 return
 
             if is_schedule_file(tmp_path):
