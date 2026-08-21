@@ -747,3 +747,139 @@ def read_schedule_rows(input_path, default_year=None):
     if not rows:
         raise ValueError("Không tìm thấy dòng dữ liệu nào trong file lịch hỗ trợ.")
     return rows
+
+
+# ---------------------------------------------------------------------------
+# LỊCH PHÂN CA (nhiều ngày x 6 ca/ngày) + TỰ ĐỘNG PHÂN LINE
+# ---------------------------------------------------------------------------
+
+# Mã nhân viên -> tên ngắn dùng trong quy tắc phân line
+MA_NV_TO_TEN_NGAN = {
+    "112006": "Mi",
+    "158278": "Quyên",
+    "198434": "Sang",
+    "214480": "Thi",
+    "237593": "Ánh",
+    "249215": "Linh",
+    # 237175 = Son (bảo vệ), 227216 = Quí (quản lý) -> KHÔNG đưa vào phân line
+}
+MA_NV_LOAI_TRU = {"237175", "227216"}
+
+
+def is_ca_schedule_file(input_path):
+    """Kiểm tra nhanh: file có phải bảng lịch phân ca (nhiều ngày x Ca 1-6) không."""
+    wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
+    ws = wb.worksheets[0]
+    row1 = [str(c.value) for c in next(ws.iter_rows(min_row=1, max_row=1)) if c.value]
+    wb.close()
+    return any("(" in v and ")" in v and "/" in v for v in row1)
+
+
+def read_ca_schedule(input_path, nam_mac_dinh=None):
+    """Đọc file lịch phân ca (giống bảng Quản Lý Phân Ca), trả về:
+    {"2026-08-21": {"sang": ["Quyên","Sang","Thi","Linh"], "chieu": [...]}, ...}
+    Chỉ lấy nhân viên có trong MA_NV_TO_TEN_NGAN (loại Quí, Son)."""
+    wb = openpyxl.load_workbook(input_path, data_only=True)
+    ws = wb.worksheets[0]
+    if nam_mac_dinh is None:
+        nam_mac_dinh = datetime.now().year
+
+    # Tìm các block ngày trên dòng 1: "T6 (21/08)" -> cột bắt đầu, ngày
+    blocks = []
+    for c in range(1, ws.max_column + 1):
+        v = ws.cell(row=1, column=c).value
+        if v and "(" in str(v) and ")" in str(v):
+            inside = str(v).split("(")[1].split(")")[0].strip()
+            parts = inside.replace("-", "/").split("/")
+            if len(parts) == 2:
+                day, month = int(parts[0]), int(parts[1])
+                ngay_str = f"{nam_mac_dinh:04d}-{month:02d}-{day:02d}"
+                blocks.append((ngay_str, c))
+
+    # Tìm dòng nhân viên: cột 2 = mã nhân viên
+    ma_nv_rows = []
+    for r in range(1, ws.max_row + 1):
+        ma = ws.cell(row=r, column=2).value
+        if ma and str(ma).strip() in MA_NV_TO_TEN_NGAN:
+            ma_nv_rows.append((r, str(ma).strip()))
+
+    result = {}
+    for ngay_str, start_col in blocks:
+        sang, chieu = [], []
+        for r, ma in ma_nv_rows:
+            ten_ngan = MA_NV_TO_TEN_NGAN[ma]
+            ca_vals = [ws.cell(row=r, column=start_col + i).value for i in range(6)]
+            if any(v is not None for v in ca_vals[0:3]):
+                sang.append(ten_ngan)
+            if any(v is not None for v in ca_vals[3:6]):
+                chieu.append(ten_ngan)
+        result[ngay_str] = {"sang": sang, "chieu": chieu}
+
+    return result
+
+
+# ---- Quy tắc phân line tự động (chốt cùng anh Quí) ----
+def phan_line_assign(names_in_ca, rotation_picker):
+    """Áp quy tắc phân line cho 1 ca (list tên ngắn có mặt ca đó).
+    rotation_picker(candidates_sorted_list) -> trả về 1 tên được chọn (để xoay vòng công bằng,
+    do storage.py quản lý trạng thái xoay vòng).
+    Trả về dict {"THU_NGAN": [...], "FRESH": [...], "FMCG": [...]}.
+    """
+    remaining = set(names_in_ca)
+    result = {"THU_NGAN": [], "FRESH": [], "FMCG": []}
+
+    # FMCG: Linh > Sang > Thi
+    for uu_tien in ("Linh", "Sang", "Thi"):
+        if uu_tien in remaining:
+            result["FMCG"].append(uu_tien)
+            remaining.discard(uu_tien)
+            break
+
+    # Mi luôn cố định THU NGÂN
+    if "Mi" in remaining:
+        result["THU_NGAN"].append("Mi")
+        remaining.discard("Mi")
+
+    # Sang chỉ đứng THU NGÂN hoặc FMCG -> nếu còn lại (chưa bị chọn FMCG) thì vào THU NGÂN
+    if "Sang" in remaining:
+        result["THU_NGAN"].append("Sang")
+        remaining.discard("Sang")
+
+    so_nguoi = len(names_in_ca)
+    target_thu_ngan = 3 if so_nguoi >= 5 else 2
+
+    # Quyên ưu tiên đứng THU NGÂN hơn FRESH
+    if "Quyên" in remaining and len(result["THU_NGAN"]) < target_thu_ngan:
+        result["THU_NGAN"].append("Quyên")
+        remaining.discard("Quyên")
+
+    # Các slot THU NGÂN còn thiếu -> xoay vòng trong số còn lại
+    while len(result["THU_NGAN"]) < target_thu_ngan and remaining:
+        candidates = sorted(remaining)
+        pick = rotation_picker(candidates)
+        result["THU_NGAN"].append(pick)
+        remaining.discard(pick)
+
+    # Còn lại -> FRESH
+    for p in sorted(remaining):
+        result["FRESH"].append(p)
+
+    return result
+
+
+TEN_NGAN_TO_MA_NV = {v: k for k, v in MA_NV_TO_TEN_NGAN.items()}
+
+NOI_DUNG_CA_MAC_DINH = {
+    "THU_NGAN": {
+        "sang": ["NẤM 150k", "C2 8 lốc", "Bánh trung thu 6 cái"],
+        "chieu": ["NẤM 300k", "C2 12 lốc", "Bánh trung thu 6 cái"],
+    },
+    "FRESH": {
+        "sang": ["=> BC LỰA TRÁI CÂY TRƯỚC 8h"],
+        "chieu": ["HẾT THỊT - CÁ GIẢM GIÁ", "HẾT RAU LÁ"],
+    },
+    "FMCG": {
+        "sang": ["Xử lí hàng FMCG ( nếu có )", "Bắn kệ , châm hàng", "Quét lau FMCG + Kho"],
+        "chieu": ["Xử lí hàng FMCG ( nếu có )", "Dọn dẹp kho bãi gọn ràng có lối đi", "BC FMCG"],
+    },
+}
