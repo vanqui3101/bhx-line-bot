@@ -53,6 +53,8 @@ from excel_reader import (
     read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
     is_schedule_file, read_schedule_rows,
+    is_ca_schedule_file, read_ca_schedule, phan_line_assign,
+    TEN_NGAN_TO_MA_NV, NOI_DUNG_CA_MAC_DINH,
 )
 from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
@@ -470,7 +472,139 @@ def _push_mention_many(group_id, content, user_ids):
         print("Loi gui tin nhac phan line:", resp.status_code, resp.text)
 
 
-def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
+def _rotation_picker(candidates):
+    """Xoay vòng công bằng: chọn 1 người trong danh sách, lưu trạng thái để
+    lần sau (cùng danh sách này) sẽ chọn người tiếp theo."""
+    key = "|".join(sorted(candidates))
+    idx = storage.get_rotation_index(key)
+    pick = candidates[idx % len(candidates)]
+    storage.advance_rotation_index(key, len(candidates))
+    return pick
+
+
+def _build_phan_line_text_and_data(ngay_str, roster_for_date):
+    """Từ danh sách người có mặt (sáng/chiều), áp quy tắc phân line, dựng
+    sẵn văn bản (để lưu lịch sử) + dữ liệu user_id thật (để tag) + text gửi
+    lên nhóm. Trả về (noi_dung_full_text, mentionees_list, phan_line_data)."""
+    refresh_group_members(GROUP_ID)
+
+    phan_line_data = {
+        "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
+        "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
+    }
+
+    lines = []
+    mentionees = []
+
+    def them_dong(text_line):
+        lines.append(text_line)
+
+    def them_tag(ten_ngan):
+        ma_nv = TEN_NGAN_TO_MA_NV.get(ten_ngan)
+        user_id, display_name = (None, None)
+        if ma_nv:
+            user_id, display_name = _find_user_id_by_name(ten_ngan)
+        line_text = f"@{display_name or ten_ngan}"
+        idx = sum(len(l) + 1 for l in lines)
+        if display_name and user_id:
+            mentionees.append({"index": idx, "length": len(line_text), "type": "user", "userId": user_id})
+        them_dong(line_text)
+        return user_id
+
+    for ca_key, ca_label_sang_chieu, ten_hien in [("sang", "sáng", "( sáng )"), ("chieu", "chieu", "(chiều)")]:
+        ten_ca_key = "sang" if ca_key == "sang" else "chieu"
+        names = roster_for_date.get(ca_key, [])
+        if not names:
+            continue
+        ket_qua = phan_line_assign(names, _rotation_picker)
+
+        them_dong(f"THU NGÂN {ten_hien}" if ca_key == "sang" else f"THU NGÂN {ten_hien}")
+        them_dong("")
+        thu_ngan_ids = []
+        for ten in ket_qua["THU_NGAN"]:
+            uid = them_tag(ten)
+            if uid:
+                thu_ngan_ids.append(uid)
+            for cv in NOI_DUNG_CA_MAC_DINH["THU_NGAN"][ten_ca_key]:
+                them_dong(f"- {cv}")
+            them_dong("")
+        if ten_ca_key == "sang":
+            them_dong("=> BC LỰA TRÁI CÂY TRƯỚC 8h")
+            them_dong("")
+
+        them_dong("FRESH")
+        them_dong("")
+        fresh_ids = []
+        for ten in ket_qua["FRESH"]:
+            uid = them_tag(ten)
+            if uid:
+                fresh_ids.append(uid)
+            them_dong("( hỗ trợ thu ngân)")
+            if ten_ca_key == "sang":
+                them_dong("=> BC LỰA RAU CỦ TRƯỚC 8h")
+            else:
+                for cv in NOI_DUNG_CA_MAC_DINH["FRESH"]["chieu"]:
+                    them_dong(f"- {cv}")
+            them_dong("")
+
+        them_dong("FMCG")
+        them_dong("")
+        fmcg_ids = []
+        fmcg_text_lines = []
+        for ten in ket_qua["FMCG"]:
+            uid = them_tag(ten)
+            if uid:
+                fmcg_ids.append(uid)
+            for cv in NOI_DUNG_CA_MAC_DINH["FMCG"][ten_ca_key]:
+                them_dong(f"- {cv}")
+                fmcg_text_lines.append(f"- {cv}")
+            them_dong("")
+
+        phan_line_data[ca_key]["thu_ngan_fresh_users"] = thu_ngan_ids + fresh_ids
+        phan_line_data[ca_key]["fmcg_users"] = fmcg_ids
+        phan_line_data[ca_key]["fmcg_text"] = "\n".join(fmcg_text_lines)
+
+    them_dong("==> MỤC TIÊU CỤ THỂ TỪNG ANH/CHỊ báo cáo trước 22h")
+
+    full_text = "\n".join(lines).rstrip()
+    return full_text, mentionees, phan_line_data
+
+
+def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
+    """Tự tạo bài phân line cho 1 ngày (từ file lịch phân ca đã lưu), đăng
+    lên nhóm với tag thật, và lưu vào kho dữ liệu phân line (dùng chung cho
+    lịch nhắc THU NGÂN/FRESH/FMCG đã có)."""
+    if not GROUP_ID:
+        print("[CAVIEC3-DEBUG] khong co GROUP_ID")
+        return
+    roster = storage.get_ca_schedule(target_date_str)
+    if not roster:
+        print(f"[CAVIEC3-DEBUG] khong co du lieu lich ca cho ngay {target_date_str}")
+        return
+
+    full_text, mentionees, phan_line_data = _build_phan_line_text_and_data(target_date_str, roster)
+    print(f"[CAVIEC3-DEBUG] da tao bai phan line cho {target_date_str}, {len(mentionees)} mentions")
+
+    body = {
+        "to": GROUP_ID,
+        "messages": [{"type": "text", "text": full_text, "mention": {"mentionees": mentionees}}],
+    }
+    try:
+        resp = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"},
+            json=body, timeout=15,
+        )
+        if resp.status_code >= 300:
+            print("[CAVIEC3-DEBUG] Loi gui bai phan line:", resp.status_code, resp.text)
+    except Exception:
+        traceback.print_exc()
+
+    storage.save_phan_line(target_date_str, phan_line_data)
+    print(f"[CAVIEC3-DEBUG] da luu phan_line cho {target_date_str}")
+
+
+
     """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
     Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
     print(f"[PHANLINE-DEBUG] scheduler chay slot={slot} ca={ca} group={group}")
@@ -551,15 +685,48 @@ def _test_phanline_reminder():
     send_phanline_reminder("chieu", "thu_ngan_fresh", slot_test, _noi_dung_thu_ngan_fresh)
 
 
-_test_start = _dt(2026, 8, 20, 15, 40, 0)
+# ---- LỊCH TEST CÔNG VIỆC 3 (tạm thời, hôm nay 21/08) ----
+# 16h30: tự tạo + đăng bài phân line cho ngày MAI (22/08) từ file lịch phân ca.
+# 16h40: gửi thử 1 lượt nhắc THU NGÂN+FRESH ca sáng của 22/08 để test tag thật.
+# Sau khi chạy thật ổn định, đổi lại giờ cho đúng quy trình chính thức
+# (ví dụ đăng bài tối hôm trước, tương tự lịch hỗ trợ siêu thị khác).
+def _test_tao_phan_line_224():
+    print("[CAVIEC3-DEBUG] === TEST: tao bai phan line cho 22/08 ===")
+    auto_generate_and_post_phan_line("2026-08-22", test_mode=True)
+
+
+def _test_nhac_phan_line_224():
+    print("[CAVIEC3-DEBUG] === TEST: gui thu nhac cho 22/08 ===")
+    try:
+        from zoneinfo import ZoneInfo
+        now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    except Exception:
+        now_vn = _dt.now()
+    data = storage.get_phan_line("2026-08-22")
+    if not data:
+        print("[CAVIEC3-DEBUG] chua co du lieu phan_line cho 22/08 -> bo qua nhac thu")
+        return
+    user_ids = data.get("sang", {}).get("thu_ngan_fresh_users", [])
+    if not user_ids:
+        print("[CAVIEC3-DEBUG] khong co user de nhac thu")
+        return
+    _push_mention_many(GROUP_ID, _noi_dung_thu_ngan_fresh("sang"), user_ids)
+    print("[CAVIEC3-DEBUG] === da gui thu nhac ===")
+
+
+from apscheduler.triggers.date import DateTrigger
+_gio_tao_bai = _dt(2026, 8, 21, 16, 30, 0)
+_gio_nhac_thu = _dt(2026, 8, 21, 16, 40, 0)
 try:
-    from zoneinfo import ZoneInfo as _ZI
-    _test_start = _test_start.replace(tzinfo=_ZI("Asia/Ho_Chi_Minh"))
+    from zoneinfo import ZoneInfo as _ZI2
+    _tz_vn = _ZI2("Asia/Ho_Chi_Minh")
+    _gio_tao_bai = _gio_tao_bai.replace(tzinfo=_tz_vn)
+    _gio_nhac_thu = _gio_nhac_thu.replace(tzinfo=_tz_vn)
 except Exception:
     pass
 
-from apscheduler.triggers.interval import IntervalTrigger
-scheduler.add_job(_test_phanline_reminder, IntervalTrigger(minutes=35, start_date=_test_start))
+scheduler.add_job(_test_tao_phan_line_224, DateTrigger(run_date=_gio_tao_bai))
+scheduler.add_job(_test_nhac_phan_line_224, DateTrigger(run_date=_gio_nhac_thu))
 
 scheduler.start()
 
@@ -587,6 +754,15 @@ def handle_file_message(event):
             content = blob_api.get_message_content(message_id)
             with open(tmp_path, "wb") as f:
                 f.write(content)
+
+            if is_ca_schedule_file(tmp_path):
+                ca_data = read_ca_schedule(tmp_path)
+                for ngay, roster in ca_data.items():
+                    storage.save_ca_schedule(ngay, roster)
+                so_ngay = len(ca_data)
+                reply = f"✅ Đã lưu LỊCH PHÂN CA ({so_ngay} ngày). Bot sẽ tự tạo bài phân line và nhắc đúng người mỗi ngày."
+                reply_text(messaging_api, event.reply_token, reply)
+                return
 
             if is_schedule_file(tmp_path):
                 schedule_rows = read_schedule_rows(tmp_path)
