@@ -100,6 +100,12 @@ TD_COMMAND_PATTERN = re.compile(
     r"^\s*(td|th[uư][oở]ng)\s*$", re.IGNORECASE
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
+DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
+TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh"}
+TEN_NGAN_CHUAN_HOA = {
+    "mi": "Mi", "quyên": "Quyên", "quyen": "Quyên", "sang": "Sang",
+    "thi": "Thi", "ánh": "Ánh", "anh": "Ánh", "linh": "Linh",
+}
 
 
 @app.route("/", methods=["GET"])
@@ -203,47 +209,19 @@ def build_thuong_report_message():
 # ---------------------------------------------------------------------------
 
 def refresh_group_members(group_id):
-    """Lấy toàn bộ thành viên nhóm LINE (user_id + tên hiển thị) qua API,
-    lưu lại làm danh bạ để dùng tag (@mention). Không cần ai gõ lệnh gì cả —
-    hàm này tự chạy mỗi khi cần gửi nhắc."""
-    if not group_id:
-        return
-    try:
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            member_ids = []
-            start = None
-            while True:
-                if start:
-                    resp = messaging_api.get_group_members_ids(group_id, start=start)
-                else:
-                    resp = messaging_api.get_group_members_ids(group_id)
-                member_ids.extend(resp.member_ids)
-                start = getattr(resp, "next", None)
-                if not start:
-                    break
-
-            members = []
-            for uid in member_ids:
-                try:
-                    profile = messaging_api.get_group_member_profile(group_id, uid)
-                    members.append((uid, profile.display_name))
-                except Exception:
-                    traceback.print_exc()
-
-            if members:
-                storage.save_group_members(members)
-    except Exception:
-        traceback.print_exc()
+    """[KHÔNG CÒN DÙNG] API lấy danh sách thành viên nhóm bị LINE chặn
+    (ForbiddenException: 'Access to this API is not available for your
+    account'). Giữ hàm rỗng để không phải sửa các chỗ gọi tới nó."""
+    return
 
 
 def _find_user_id_by_name(ten):
-    """Tìm user_id trong danh bạ nhóm khớp với TÊN trong lịch (so khớp không
-    phân biệt hoa/thường, chỉ cần tên nằm trong tên hiển thị LINE)."""
-    ten_norm = ten.strip().upper()
-    for user_id, display_name in storage.get_all_group_members():
-        if ten_norm in display_name.strip().upper():
-            return user_id, display_name
+    """Tìm user_id đã ĐĂNG KÝ (không còn gọi API bị chặn) — mỗi bạn chỉ cần
+    gõ 1 lần lệnh 'DK <Tên>' trong nhóm để bot ghi nhớ ID thật."""
+    ten_norm = ten.strip()
+    user_id = storage.get_user_id_da_dang_ky(ten_norm)
+    if user_id:
+        return user_id, ten_norm
     return None, None
 
 
@@ -349,6 +327,43 @@ def _is_phan_line_message(text):
     return "THU NGÂN" in tu and "FMCG" in tu
 
 
+TEN_TU_DONG_HOC = {"Mi": "Mi", "Quyên": "Quyên", "Sang": "Sang", "Thi": "Thi", "Ánh": "Ánh", "Linh": "Linh"}
+
+
+def _tu_dong_dang_ky_tu_mention(text, mentionees):
+    """Tự động học ID thật của từng bạn ngay từ bài phân line anh gửi —
+    không cần ai gõ lệnh DK gì cả. Cách làm: gộp cả phần TRONG tag lẫn đoạn
+    text NGAY SAU tag (tới hết dòng) rồi tìm đúng 1 trong 6 tên ngắn đã
+    biết (không phân biệt hoa/thường), vì có bạn tên nằm trong tag
+    (VD "...198434-SANG"), có bạn tên nằm sau tag (VD "112006 Mi")."""
+    for m in mentionees:
+        user_id = getattr(m, "user_id", None) or getattr(m, "userId", None)
+        idx = getattr(m, "index", None)
+        length = getattr(m, "length", None)
+        if user_id is None or idx is None or length is None:
+            continue
+        end = idx + length
+        span_text = text[idx:end]
+        newline_pos = text.find("\n", end)
+        window_end = newline_pos if newline_pos != -1 else min(end + 40, len(text))
+        after_text = text[end:window_end]
+        combined = span_text + " " + after_text
+        for token in re.split(r"[\s\(\),\-_]+", combined):
+            token = token.strip()
+            if not token:
+                continue
+            token_upper = token.upper()
+            matched = None
+            for ten_ngan, ten_chuan in TEN_TU_DONG_HOC.items():
+                if token_upper == ten_ngan.upper():
+                    matched = ten_chuan
+                    break
+            if matched:
+                storage.dang_ky_thanh_vien(matched, user_id)
+                print(f"[PHANLINE-DEBUG] Tu dong hoc: {matched} = {user_id}")
+                break
+
+
 def _parse_phan_line(text, mentionees):
     """Tách bài phân line thành dữ liệu theo ca (sáng/chiều) x nhóm
     (thu_ngan_fresh / fmcg). mentionees: list các object có .index, .length,
@@ -420,16 +435,13 @@ def _parse_phan_line(text, mentionees):
 
 
 def _get_display_name(group_id, user_id):
-    try:
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            profile = messaging_api.get_group_member_profile(group_id, user_id)
-            print(f"[PHANLINE-DEBUG] lay ten thanh cong cho {user_id}: {profile.display_name}")
-            return profile.display_name
-    except Exception as e:
-        print(f"[PHANLINE-DEBUG] LOI khi lay ten cho user_id={user_id}: {e}")
-        traceback.print_exc()
-        return None
+    """[KHÔNG CÒN GỌI API] Tra tên ngắn từ danh sách đã ĐĂNG KÝ (DK <Tên>),
+    không còn gọi API get_group_member_profile bị LINE chặn."""
+    ten_ngan = storage.get_ten_ngan_tu_user_id(user_id)
+    if ten_ngan:
+        return ten_ngan
+    print(f"[PHANLINE-DEBUG] user_id={user_id} chua duoc dang ky (DK <Ten>) -> khong co ten de tag")
+    return None
 
 
 def _push_mention_many(group_id, content, user_ids):
@@ -715,7 +727,7 @@ def _test_nhac_phan_line_224():
 
 
 from apscheduler.triggers.date import DateTrigger
-_gio_tao_bai = _dt(2026, 8, 21, 22, 3, 0)
+_gio_tao_bai = _dt(2026, 8, 21, 22, 33, 0)
 _gio_nhac_thu = _dt(2026, 8, 21, 15, 30, 0)
 try:
     from zoneinfo import ZoneInfo as _ZI2
@@ -896,6 +908,7 @@ def handle_text_message(event):
                           f"type_field={getattr(m,'type',None)})")
                 data = _parse_phan_line(text, mentionees)
                 print(f"[PHANLINE-DEBUG] ket qua tach: {json.dumps(data, ensure_ascii=False)}")
+                _tu_dong_dang_ky_tu_mention(text, mentionees)
                 try:
                     from zoneinfo import ZoneInfo
                     now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
@@ -907,6 +920,24 @@ def handle_text_message(event):
                            "Em nhận line này rồi để em nhắc mấy anh/chị bám sát mục tiêu ngày để hoàn tất tốt mục tiêu anh ạ")
             except Exception:
                 traceback.print_exc()
+            return
+
+        # Lệnh ĐĂNG KÝ (thay thế API bị LINE chặn) — mỗi bạn gõ "DK <Tên>" 1 lần
+        dk_match = DANG_KY_COMMAND_PATTERN.match(text)
+        if dk_match:
+            ten_raw = dk_match.group(1).strip()
+            ten_key = ten_raw.lower()
+            if ten_key in TEN_NGAN_HOP_LE:
+                ten_chuan = TEN_NGAN_CHUAN_HOA[ten_key]
+                user_id = getattr(event.source, "user_id", None)
+                if user_id:
+                    storage.dang_ky_thanh_vien(ten_chuan, user_id)
+                    reply_text(messaging_api, event.reply_token, f"Đã ghi nhận {ten_chuan}, cảm ơn bạn!")
+                else:
+                    reply_text(messaging_api, event.reply_token, "Không lấy được ID của bạn, thử lại giúp em nhé.")
+            else:
+                reply_text(messaging_api, event.reply_token,
+                           "Tên chưa đúng — gõ đúng 1 trong: Mi, Quyên, Sang, Thi, Ánh, Linh. VD: DK Mi")
             return
 
         # Lệnh lấy Group ID
