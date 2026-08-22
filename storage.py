@@ -490,3 +490,52 @@ def get_ca_schedule(ngay):
     row = cur.fetchone()
     conn.close()
     return json.loads(row[0]) if row else None
+
+
+# ---------------------------------------------------------------------------
+# ĐĂNG KÝ THÀNH VIÊN (thay thế API bị chặn "Get group member profile")
+# ---------------------------------------------------------------------------
+
+def _connect_dangky():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dang_ky_thanh_vien (
+            ten_ngan TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL
+        )
+    """)
+    return conn
+
+
+def dang_ky_thanh_vien(ten_ngan, user_id):
+    conn = _connect_dangky()
+    with conn:
+        conn.execute("""
+            INSERT INTO dang_ky_thanh_vien (ten_ngan, user_id) VALUES (?, ?)
+            ON CONFLICT(ten_ngan) DO UPDATE SET user_id=excluded.user_id
+        """, (ten_ngan, user_id))
+    conn.close()
+
+
+def get_user_id_da_dang_ky(ten_ngan):
+    conn = _connect_dangky()
+    cur = conn.execute("SELECT user_id FROM dang_ky_thanh_vien WHERE ten_ngan = ?", (ten_ngan,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_ten_ngan_tu_user_id(user_id):
+    conn = _connect_dangky()
+    cur = conn.execute("SELECT ten_ngan FROM dang_ky_thanh_vien WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_all_dang_ky():
+    conn = _connect_dangky()
+    cur = conn.execute("SELECT ten_ngan, user_id FROM dang_ky_thanh_vien")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
