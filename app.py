@@ -727,7 +727,7 @@ def _test_nhac_phan_line_224():
 
 
 from apscheduler.triggers.date import DateTrigger
-_gio_tao_bai = _dt(2026, 8, 21, 22, 33, 0)
+_gio_tao_bai = _dt(2026, 8, 22, 9, 30, 0)
 _gio_nhac_thu = _dt(2026, 8, 21, 15, 30, 0)
 try:
     from zoneinfo import ZoneInfo as _ZI2
