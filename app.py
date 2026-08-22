@@ -103,6 +103,7 @@ DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
 # bị lệch (chỉ tag riêng lỗi) hay do cả tài khoản OA (tag kiểu nào cũng lỗi).
 # Xoá cả khối này (đánh dấu TẠM THỜI - TEST) sau khi đã xác định xong nguyên nhân.
 TEST_TAG_ALL_PATTERN = re.compile(r"^\s*test\s*tag\s*all\s*$", re.IGNORECASE)
+TEST_TAG_ME_PATTERN = re.compile(r"^\s*test\s*tag\s*me\s*$", re.IGNORECASE)
 TEST_TAG_ONE_PATTERN = re.compile(r"^\s*test\s*tag\s+([a-zA-ZÀ-ỹ]+)\s*$", re.IGNORECASE)
 
 TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh"}
@@ -295,13 +296,19 @@ def send_support_reminder(gio_nhac):
 # Xoá cả khối "TẠM THỜI - TEST" này (kể cả 2 regex pattern ở trên) sau khi
 # đã xác định xong nguyên nhân.
 # ---------------------------------------------------------------------------
-def _test_push_tag(mode, ten_ngan=None):
+def _test_push_tag(mode, ten_ngan=None, direct_user_id=None):
     if not GROUP_ID:
         print("[TEST-TAG-DEBUG] khong co GROUP_ID")
         return
     if mode == "all":
         text = "{u1} — test tag toàn bộ nhóm"
         substitution = {"u1": {"type": "mention", "mentionee": {"type": "all"}}}
+    elif direct_user_id:
+        # Dung thang user_id cua nguoi vua go lenh (chac chan dung 100%,
+        # khong phu thuoc du lieu da hoc/dang ky truoc do).
+        user_id = direct_user_id
+        text = "{u1} — test tag chính người vừa gõ lệnh"
+        substitution = {"u1": {"type": "mention", "mentionee": {"type": "user", "userId": user_id}}}
     else:
         user_id, ten_chuan = _find_user_id_by_name(ten_ngan)
         if not user_id:
@@ -323,7 +330,8 @@ def _test_push_tag(mode, ten_ngan=None):
         json=body,
         timeout=15,
     )
-    print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} -> status={resp.status_code} body={resp.text}")
+    print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} direct_user_id={direct_user_id} "
+          f"-> status={resp.status_code} body={resp.text}")
 
 
 # ---------------------------------------------------------------------------
@@ -895,6 +903,10 @@ def handle_text_message(event):
         # Xem log ở Railway để đọc status code + nội dung LINE trả về.
         if source_type == "group" and TEST_TAG_ALL_PATTERN.match(text):
             _test_push_tag("all")
+            return
+        if source_type == "group" and TEST_TAG_ME_PATTERN.match(text):
+            my_user_id = getattr(event.source, "user_id", None)
+            _test_push_tag("user", direct_user_id=my_user_id)
             return
         if source_type == "group" and TEST_TAG_ONE_PATTERN.match(text):
             ten_test = TEST_TAG_ONE_PATTERN.match(text).group(1)
