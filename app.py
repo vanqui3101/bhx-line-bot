@@ -226,29 +226,20 @@ def _find_user_id_by_name(ten):
 
 
 def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
-    """Gửi tin nhắn có TAG THẬT (@tên) vào nhóm — dùng thẳng LINE API vì
-    tính năng mention cần định dạng JSON đặc biệt (mention.mentionees)."""
-    prefix = "Nhắc "
-    mention_text = f"@{display_name}"
+    """Gửi tin nhắn có TAG THẬT (@tên) vào nhóm — dùng "textV2" +
+    "substitution" (đúng định dạng LINE yêu cầu cho tin nhắn GỬI ĐI có tag,
+    khác với định dạng "mention.mentionees" chỉ dùng cho tin nhắn NHẬN VÀO)."""
     ca_text = f" ca {ca}" if ca else ""
-    suffix = f" ngày {ngay_hien_thi} có lịch đi hỗ trợ siêu thị khác{ca_text}."
-    full_text = prefix + mention_text + suffix
+    full_text = f"Nhắc {{u1}} ngày {ngay_hien_thi} có lịch đi hỗ trợ siêu thị khác{ca_text}."
 
     body = {
         "to": group_id,
         "messages": [
             {
-                "type": "text",
+                "type": "textV2",
                 "text": full_text,
-                "mention": {
-                    "mentionees": [
-                        {
-                            "index": len(prefix),
-                            "length": len(mention_text),
-                            "type": "user",
-                            "userId": user_id,
-                        }
-                    ]
+                "substitution": {
+                    "u1": {"type": "mention", "mentionee": {"type": "user", "userId": user_id}}
                 },
             }
         ],
@@ -457,19 +448,16 @@ def _push_mention_many(group_id, content, user_ids):
         return
 
     text = content + "\n"
-    mentionees = []
-    for uid, name in names:
-        mention_text = f"@{name}"
-        idx = len(text)
-        mentionees.append({
-            "index": idx, "length": len(mention_text), "type": "user", "userId": uid,
-        })
-        text += mention_text + "\n"
+    substitution = {}
+    for i, (uid, name) in enumerate(names):
+        placeholder = f"u{i}"
+        text += f"{{{placeholder}}}\n"
+        substitution[placeholder] = {"type": "mention", "mentionee": {"type": "user", "userId": uid}}
     final_text = text.rstrip("\n")
 
     body = {
         "to": group_id,
-        "messages": [{"type": "text", "text": final_text, "mention": {"mentionees": mentionees}}],
+        "messages": [{"type": "textV2", "text": final_text, "substitution": substitution}],
     }
     resp = requests.post(
         "https://api.line.me/v2/bot/message/push",
@@ -496,31 +484,30 @@ def _rotation_picker(candidates):
 
 def _build_phan_line_text_and_data(ngay_str, roster_for_date):
     """Từ danh sách người có mặt (sáng/chiều), áp quy tắc phân line, dựng
-    sẵn văn bản (để lưu lịch sử) + dữ liệu user_id thật (để tag) + text gửi
-    lên nhóm. Trả về (noi_dung_full_text, mentionees_list, phan_line_data)."""
-    refresh_group_members(GROUP_ID)
-
+    sẵn văn bản (để lưu lịch sử) + substitution thật (để tag qua textV2) +
+    dữ liệu user_id (để dùng cho lịch nhắc). Trả về (noi_dung_full_text,
+    substitution_dict, phan_line_data)."""
     phan_line_data = {
         "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
         "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
     }
 
     lines = []
-    mentionees = []
+    substitution = {}
+    _placeholder_counter = [0]
 
     def them_dong(text_line):
         lines.append(text_line)
 
     def them_tag(ten_ngan):
-        ma_nv = TEN_NGAN_TO_MA_NV.get(ten_ngan)
-        user_id, display_name = (None, None)
-        if ma_nv:
-            user_id, display_name = _find_user_id_by_name(ten_ngan)
-        line_text = f"@{display_name or ten_ngan}"
-        idx = sum(len(l) + 1 for l in lines)
-        if display_name and user_id:
-            mentionees.append({"index": idx, "length": len(line_text), "type": "user", "userId": user_id})
-        them_dong(line_text)
+        user_id, display_name = _find_user_id_by_name(ten_ngan)
+        if user_id:
+            placeholder = f"u{_placeholder_counter[0]}"
+            _placeholder_counter[0] += 1
+            substitution[placeholder] = {"type": "mention", "mentionee": {"type": "user", "userId": user_id}}
+            them_dong("{" + placeholder + "}")
+        else:
+            them_dong(f"@{ten_ngan}")
         return user_id
 
     for ca_key, ca_label_sang_chieu, ten_hien in [("sang", "sáng", "( sáng )"), ("chieu", "chieu", "(chiều)")]:
@@ -579,7 +566,7 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
     them_dong("==> MỤC TIÊU CỤ THỂ TỪNG ANH/CHỊ báo cáo trước 22h")
 
     full_text = "\n".join(lines).rstrip()
-    return full_text, mentionees, phan_line_data
+    return full_text, substitution, phan_line_data
 
 
 def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
@@ -594,12 +581,12 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
         print(f"[CAVIEC3-DEBUG] khong co du lieu lich ca cho ngay {target_date_str}")
         return
 
-    full_text, mentionees, phan_line_data = _build_phan_line_text_and_data(target_date_str, roster)
-    print(f"[CAVIEC3-DEBUG] da tao bai phan line cho {target_date_str}, {len(mentionees)} mentions")
+    full_text, substitution, phan_line_data = _build_phan_line_text_and_data(target_date_str, roster)
+    print(f"[CAVIEC3-DEBUG] da tao bai phan line cho {target_date_str}, {len(substitution)} mentions")
 
     body = {
         "to": GROUP_ID,
-        "messages": [{"type": "text", "text": full_text, "mention": {"mentionees": mentionees}}],
+        "messages": [{"type": "textV2", "text": full_text, "substitution": substitution}],
     }
     try:
         resp = requests.post(
@@ -727,7 +714,7 @@ def _test_nhac_phan_line_224():
 
 
 from apscheduler.triggers.date import DateTrigger
-_gio_tao_bai = _dt(2026, 8, 22, 9, 30, 0)
+_gio_tao_bai = _dt(2026, 8, 22, 10, 20, 0)
 _gio_nhac_thu = _dt(2026, 8, 21, 15, 30, 0)
 try:
     from zoneinfo import ZoneInfo as _ZI2
