@@ -21,7 +21,6 @@ CẤU HÌNH (Environment Variables):
                                trả lời đúng nơi gõ lệnh, giữ biến này chỉ để
                                tương thích ngược nếu cần dùng lại sau này)
 """
-
 import os
 import re
 import uuid
@@ -29,11 +28,9 @@ import traceback
 import requests
 import json
 from datetime import datetime as _dt
-
 from flask import Flask, request, abort, send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -48,7 +45,6 @@ from linebot.v3.messaging import (
     FlexContainer,
 )
 from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent
-
 from excel_reader import (
     read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
@@ -81,7 +77,6 @@ storage.ensure_default_schedule(DEFAULT_SUPPORT_SCHEDULE)
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
-
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
@@ -101,6 +96,15 @@ TD_COMMAND_PATTERN = re.compile(
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
+
+# ---- [TẠM THỜI - TEST] Lệnh so sánh tag "@Tất cả" vs tag 1 người cụ thể ----
+# Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
+# Dùng để xác định nguyên nhân lỗi "not a member of the group" là do ID người
+# bị lệch (chỉ tag riêng lỗi) hay do cả tài khoản OA (tag kiểu nào cũng lỗi).
+# Xoá cả khối này (đánh dấu TẠM THỜI - TEST) sau khi đã xác định xong nguyên nhân.
+TEST_TAG_ALL_PATTERN = re.compile(r"^\s*test\s*tag\s*all\s*$", re.IGNORECASE)
+TEST_TAG_ONE_PATTERN = re.compile(r"^\s*test\s*tag\s+([a-zA-ZÀ-ỹ]+)\s*$", re.IGNORECASE)
+
 TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh"}
 TEN_NGAN_CHUAN_HOA = {
     "mi": "Mi", "quyên": "Quyên", "quyen": "Quyên", "sang": "Sang",
@@ -147,19 +151,15 @@ def _now_vn_time_str():
 # ---------------------------------------------------------------------------
 # Dựng nội dung báo cáo (dùng chung cho lệnh DT)
 # ---------------------------------------------------------------------------
-
 def build_revenue_report_messages(base_url):
     """Tạo flex_message báo cáo doanh thu mới nhất, hoặc None nếu chưa có dữ liệu."""
     latest_date, latest_records, prev_date, prev_records = storage.get_latest_and_previous()
     if latest_date is None:
         return None
-
     gio_now = storage.get_snapshot_time(latest_date)
     gio_prev = storage.get_snapshot_time(prev_date)
-
     nh_ngay, nh_ten_st, nh_payload, _nh_gio = storage.get_latest_category_report()
     nganh_hang_breakdown = nh_payload["nganh_hang"]["items"] if nh_payload else None
-
     bubble = build_flex_message(
         latest_date, latest_records, prev_date, prev_records, gio_now, gio_prev,
         nganh_hang_breakdown=nganh_hang_breakdown, nganh_hang_ngay=nh_ngay,
@@ -168,7 +168,6 @@ def build_revenue_report_messages(base_url):
         alt_text=f"Báo cáo doanh thu {latest_date}",
         contents=FlexContainer.from_dict(bubble),
     )
-
     return flex_message
 
 
@@ -177,11 +176,9 @@ def build_category_report_message():
     ngay, ten_st, payload, _gio = storage.get_latest_category_report()
     if ngay is None:
         return None
-
     _stock_ten_st, stock_payload, _stock_gio = storage.get_latest_stock_snapshot()
     if stock_payload:
         payload = attach_stock_percentage(payload, stock_payload)
-
     bubble = build_category_flex_message(ngay, ten_st, payload)
     flex_message = FlexMessage(
         alt_text=f"Báo cáo ngành hàng {ngay}",
@@ -195,7 +192,6 @@ def build_thuong_report_message():
     ten_st, payload, _gio = storage.get_latest_thuong_report()
     if ten_st is None:
         return None
-
     bubble = build_thuong_flex_message(ten_st, payload)
     flex_message = FlexMessage(
         alt_text="Báo cáo thưởng FRESH + FMCG",
@@ -207,7 +203,6 @@ def build_thuong_report_message():
 # ---------------------------------------------------------------------------
 # NHẮC LỊCH HỖ TRỢ SIÊU THỊ KHÁC — tự động tag đúng người lúc 20h & 21h
 # ---------------------------------------------------------------------------
-
 def refresh_group_members(group_id):
     """[KHÔNG CÒN DÙNG] API lấy danh sách thành viên nhóm bị LINE chặn
     (ForbiddenException: 'Access to this API is not available for your
@@ -231,7 +226,6 @@ def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
     khác với định dạng "mention.mentionees" chỉ dùng cho tin nhắn NHẬN VÀO)."""
     ca_text = f" ca {ca}" if ca else ""
     full_text = f"Nhắc {{u1}} ngày {ngay_hien_thi} có lịch đi hỗ trợ siêu thị khác{ca_text}."
-
     body = {
         "to": group_id,
         "messages": [
@@ -251,7 +245,6 @@ def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
             "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
         },
         json=body,
-
         timeout=15,
     )
     if resp.status_code >= 300:
@@ -269,26 +262,21 @@ def send_support_reminder(gio_nhac):
         now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
     except Exception:
         now_vn = _dt.now()
-
     from datetime import timedelta
     ngay_mai = now_vn + timedelta(days=1)
     ngay_str = ngay_mai.strftime("%Y-%m-%d")
     log_key = ngay_str  # log theo ngày được nhắc (ngày mai), tránh gửi trùng
-
     if storage.da_nhac_chua(log_key, gio_nhac):
         return
-
     row = storage.get_schedule_for_date(ngay_str)
     if not row:
         return
     ten, ca = row
-
     refresh_group_members(GROUP_ID)
     user_id, display_name = _find_user_id_by_name(ten)
     if not user_id:
         print(f"Khong tim thay '{ten}' trong danh ba nhom de tag.")
         return
-
     try:
         ngay_hien_thi = ngay_mai.strftime("%d/%m")
         _push_mention_message(GROUP_ID, display_name, user_id, ngay_hien_thi, ca)
@@ -298,9 +286,49 @@ def send_support_reminder(gio_nhac):
 
 
 # ---------------------------------------------------------------------------
+# [TẠM THỜI - TEST] So sánh tag "@Tất cả" và tag 1 người cụ thể qua textV2,
+# để xác định nguyên nhân thật của lỗi "not a member of the group":
+#   - Nếu "TEST TAG ALL" gửi được nhưng "TEST TAG <Tên>" lỗi
+#     -> do ID của người đó bị lệch/cũ, KHÔNG liên quan tài khoản OA.
+#   - Nếu cả 2 đều lỗi giống nhau
+#     -> nghiêng về khả năng tài khoản OA thật sự bị giới hạn tính năng mention.
+# Xoá cả khối "TẠM THỜI - TEST" này (kể cả 2 regex pattern ở trên) sau khi
+# đã xác định xong nguyên nhân.
+# ---------------------------------------------------------------------------
+def _test_push_tag(mode, ten_ngan=None):
+    if not GROUP_ID:
+        print("[TEST-TAG-DEBUG] khong co GROUP_ID")
+        return
+    if mode == "all":
+        text = "{u1} — test tag toàn bộ nhóm"
+        substitution = {"u1": {"type": "mention", "mentionee": {"type": "all"}}}
+    else:
+        user_id, ten_chuan = _find_user_id_by_name(ten_ngan)
+        if not user_id:
+            print(f"[TEST-TAG-DEBUG] chua co ID cua '{ten_ngan}' "
+                  f"(chua duoc hoc tu bai phan line hoac chua go lenh DK)")
+            return
+        text = "{u1} — test tag 1 người"
+        substitution = {"u1": {"type": "mention", "mentionee": {"type": "user", "userId": user_id}}}
+    body = {
+        "to": GROUP_ID,
+        "messages": [{"type": "textV2", "text": text, "substitution": substitution}],
+    }
+    resp = requests.post(
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
+        },
+        json=body,
+        timeout=15,
+    )
+    print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} -> status={resp.status_code} body={resp.text}")
+
+
+# ---------------------------------------------------------------------------
 # NHẮC THEO BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN / FRESH / FMCG)
 # ---------------------------------------------------------------------------
-
 def _noi_dung_thu_ngan_fresh(ca):
     cho = "sáng" if ca == "sang" else "chiều"
     return (
@@ -360,27 +388,22 @@ def _parse_phan_line(text, mentionees):
     (thu_ngan_fresh / fmcg). mentionees: list các object có .index, .length,
     .user_id (lấy từ event.message.mention.mentionees, tin nhắn LINE gốc)."""
     lines = text.split("\n")
-
     # tinh vi tri (offset ky tu) bat dau cua tung dong trong text goc
     offsets = []
     pos = 0
     for line in lines:
         offsets.append(pos)
         pos += len(line) + 1  # +1 cho ky tu xuong dong
-
     data = {
         "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
         "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
     }
-
     current_ca = "sang"
     current_group = "thu_ngan_fresh"
-
     for i, line in enumerate(lines):
         line_upper = line.strip().upper()
         line_start = offsets[i]
         line_end = line_start + len(line)
-
         is_header = False
         if "THU NGÂN" in line_upper:
             is_header = True
@@ -395,7 +418,6 @@ def _parse_phan_line(text, mentionees):
         elif line_upper.startswith("FMCG"):
             is_header = True
             current_group = "fmcg"
-
         # tim mention nam trong dong nay
         line_has_mention = False
         for m in mentionees:
@@ -408,20 +430,16 @@ def _parse_phan_line(text, mentionees):
                 bucket = data[current_ca][f"{current_group}_users"]
                 if m_uid not in bucket:
                     bucket.append(m_uid)
-
         if is_header or line_has_mention:
             continue
-
         stripped = line.strip()
         if not stripped:
             continue
         if current_group == "fmcg":
             data[current_ca]["fmcg_text_lines"].append(stripped)
-
     for ca in ("sang", "chieu"):
         data[ca]["fmcg_text"] = "\n".join(data[ca]["fmcg_text_lines"])
         del data[ca]["fmcg_text_lines"]
-
     return data
 
 
@@ -446,7 +464,6 @@ def _push_mention_many(group_id, content, user_ids):
             names.append((uid, name))
     if not names:
         return
-
     text = content + "\n"
     substitution = {}
     for i, (uid, name) in enumerate(names):
@@ -454,7 +471,6 @@ def _push_mention_many(group_id, content, user_ids):
         text += f"{{{placeholder}}}\n"
         substitution[placeholder] = {"type": "mention", "mentionee": {"type": "user", "userId": uid}}
     final_text = text.rstrip("\n")
-
     body = {
         "to": group_id,
         "messages": [{"type": "textV2", "text": final_text, "substitution": substitution}],
@@ -491,7 +507,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
         "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
         "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text": ""},
     }
-
     lines = []
     substitution = {}
     _placeholder_counter = [0]
@@ -516,7 +531,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
         if not names:
             continue
         ket_qua = phan_line_assign(names, _rotation_picker)
-
         them_dong(f"THU NGÂN {ten_hien}" if ca_key == "sang" else f"THU NGÂN {ten_hien}")
         them_dong("")
         thu_ngan_ids = []
@@ -530,7 +544,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
         if ten_ca_key == "sang":
             them_dong("=> BC LỰA TRÁI CÂY TRƯỚC 8h")
             them_dong("")
-
         them_dong("FRESH")
         them_dong("")
         fresh_ids = []
@@ -545,7 +558,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
                 for cv in NOI_DUNG_CA_MAC_DINH["FRESH"]["chieu"]:
                     them_dong(f"- {cv}")
             them_dong("")
-
         them_dong("FMCG")
         them_dong("")
         fmcg_ids = []
@@ -558,13 +570,10 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
                 them_dong(f"- {cv}")
                 fmcg_text_lines.append(f"- {cv}")
             them_dong("")
-
         phan_line_data[ca_key]["thu_ngan_fresh_users"] = thu_ngan_ids + fresh_ids
         phan_line_data[ca_key]["fmcg_users"] = fmcg_ids
         phan_line_data[ca_key]["fmcg_text"] = "\n".join(fmcg_text_lines)
-
     them_dong("==> MỤC TIÊU CỤ THỂ TỪNG ANH/CHỊ báo cáo trước 22h")
-
     full_text = "\n".join(lines).rstrip()
     return full_text, substitution, phan_line_data
 
@@ -580,10 +589,8 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
     if not roster:
         print(f"[CAVIEC3-DEBUG] khong co du lieu lich ca cho ngay {target_date_str}")
         return
-
     full_text, substitution, phan_line_data = _build_phan_line_text_and_data(target_date_str, roster)
     print(f"[CAVIEC3-DEBUG] da tao bai phan line cho {target_date_str}, {len(substitution)} mentions")
-
     body = {
         "to": GROUP_ID,
         "messages": [{"type": "textV2", "text": full_text, "substitution": substitution}],
@@ -598,7 +605,6 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
             print("[CAVIEC3-DEBUG] Loi gui bai phan line:", resp.status_code, resp.text)
     except Exception:
         traceback.print_exc()
-
     storage.save_phan_line(target_date_str, phan_line_data)
     print(f"[CAVIEC3-DEBUG] da luu phan_line cho {target_date_str}")
 
@@ -616,28 +622,23 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     except Exception:
         now_vn = _dt.now()
     ngay_str = now_vn.strftime("%Y-%m-%d")
-
     if storage.da_nhac_phanline(ngay_str, slot):
         print(f"[PHANLINE-DEBUG] slot {slot} ngay {ngay_str} da gui roi -> bo qua")
         return
-
     data = storage.get_phan_line(ngay_str)
     if not data:
         print(f"[PHANLINE-DEBUG] khong co du lieu phan line cho ngay {ngay_str} -> bo qua")
         return
-
     ca_data = data.get(ca, {})
     user_ids = ca_data.get(f"{group}_users", [])
     print(f"[PHANLINE-DEBUG] user_ids cho ca={ca} group={group}: {user_ids}")
     if not user_ids:
         print("[PHANLINE-DEBUG] danh sach user_ids rong -> bo qua, khong gui gi")
         return
-
     if noi_dung_co_dinh is not None:
         noi_dung = noi_dung_co_dinh(ca) if callable(noi_dung_co_dinh) else noi_dung_co_dinh
     else:
         noi_dung = ca_data.get("fmcg_text") or "Xử lí công việc FMCG hôm nay giúp em."
-
     try:
         _push_mention_many(GROUP_ID, noi_dung, user_ids)
         storage.danh_dau_da_nhac_phanline(ngay_str, slot)
@@ -723,7 +724,6 @@ try:
     _gio_nhac_thu = _gio_nhac_thu.replace(tzinfo=_tz_vn)
 except Exception:
     pass
-
 scheduler.add_job(_test_tao_phan_line_224, DateTrigger(run_date=_gio_tao_bai))
 scheduler.add_job(_test_nhac_phan_line_224, DateTrigger(run_date=_gio_nhac_thu))
 
@@ -733,34 +733,28 @@ scheduler.start()
 # ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
-
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file_message(event):
     message_id = event.message.id
     original_name = event.message.file_name or "input.xlsx"
-
     with ApiClient(configuration) as api_client:
         blob_api = MessagingApiBlob(api_client)
         messaging_api = MessagingApi(api_client)
-
         if not original_name.lower().endswith((".xlsx", ".xlsm")):
             reply_text(messaging_api, event.reply_token,
                        "Bot chỉ đọc được file Excel (.xlsx). Anh gửi lại file định dạng .xlsx giúp em nhé.")
             return
-
         tmp_path = os.path.join(TMP_DIR, f"input_{uuid.uuid4().hex}.xlsx")
         try:
             content = blob_api.get_message_content(message_id)
             with open(tmp_path, "wb") as f:
                 f.write(content)
-
             if is_ca_schedule_file(tmp_path):
                 ca_data = read_ca_schedule(tmp_path)
                 for ngay, roster in ca_data.items():
                     storage.save_ca_schedule(ngay, roster)
                 print(f"[CAVIEC3-DEBUG] Da luu LICH PHAN CA ({len(ca_data)} ngay), khong tra loi theo yeu cau anh Qui.")
                 return
-
             if is_schedule_file(tmp_path):
                 schedule_rows = read_schedule_rows(tmp_path)
                 storage.save_support_schedule_rows(schedule_rows)
@@ -768,14 +762,11 @@ def handle_file_message(event):
                 reply = f"✅ Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC ({so_dong} dòng). Bot sẽ tự nhắc đúng người vào 20h và 21h mỗi ngày."
                 reply_text(messaging_api, event.reply_token, reply)
                 return
-
             file_type = detect_file_type(tmp_path)
-
             if file_type == "revenue":
                 date_str, rows = read_all_rows(tmp_path)
                 storage.save_records(rows)
                 storage.save_snapshot_time(date_str, _now_vn_time_str())
-
                 date_display = _dt.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
                 total = sum((r["dt_offline"] or 0) + (r["dt_online"] or 0) for r in rows)
                 total_str = f"{total:,.0f}".replace(",", ".")
@@ -785,10 +776,8 @@ def handle_file_message(event):
                     f"Gõ \"DT\" để xem báo cáo."
                 )
                 reply_text(messaging_api, event.reply_token, reply)
-
             elif file_type == "category":
                 so_ngay = count_distinct_dates(tmp_path)
-
                 if so_ngay >= 2:
                     # File trai nhieu ngay (vd 01/08 -> hien tai) -> bao cao THUONG
                     # + tu dong cap nhat luon MTKM bang du lieu cua NGAY GAN NHAT trong file
@@ -796,12 +785,10 @@ def handle_file_message(event):
                     storage.save_thuong_report(
                         thuong_payload["ten_st"], thuong_payload, _now_vn_time_str()
                     )
-
                     mtkm_payload = read_category_rows(tmp_path, filter_date=thuong_payload["ngay_ket_thuc"])
                     storage.save_category_report(
                         mtkm_payload["ngay"], mtkm_payload["ten_st"], mtkm_payload, _now_vn_time_str()
                     )
-
                     ngay_bd_disp = _dt.strptime(thuong_payload["ngay_bat_dau"], "%Y-%m-%d").strftime("%d/%m")
                     ngay_kt_disp = _dt.strptime(thuong_payload["ngay_ket_thuc"], "%Y-%m-%d").strftime("%d/%m")
                     reply = (
@@ -826,7 +813,6 @@ def handle_file_message(event):
                         f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo."
                     ).replace(",", ".")
                     reply_text(messaging_api, event.reply_token, reply)
-
             elif file_type == "stock":
                 stock_payload = read_stock_rows(tmp_path)
                 storage.save_stock_snapshot(
@@ -838,7 +824,6 @@ def handle_file_message(event):
                     f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo có kèm % bán trên tồn."
                 )
                 reply_text(messaging_api, event.reply_token, reply)
-
             else:
                 reply_text(
                     messaging_api, event.reply_token,
@@ -846,7 +831,6 @@ def handle_file_message(event):
                     "\"Doanh thu theo siêu thị\", \"Doanh thu chi tiết\" (ngành hàng), "
                     "hoặc \"BC tồn theo model\" (tồn kho) nhé."
                 )
-
         except Exception as e:
             traceback.print_exc()
             reply_text(messaging_api, event.reply_token, f"Có lỗi khi xử lý file: {e}")
@@ -858,14 +842,11 @@ def handle_file_message(event):
 # ---------------------------------------------------------------------------
 # Nhận lệnh text — hoạt động cả khi gõ TRỰC TIẾP trong nhóm LINE
 # ---------------------------------------------------------------------------
-
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     text = (event.message.text or "").strip()
-
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
-
         # Bot luôn trả lời đúng nơi người dùng gõ lệnh:
         # - Gõ trong nhóm -> trả lời trong chính nhóm đó.
         # - Gõ chat riêng với bot -> trả lời lại trong chat riêng đó.
@@ -907,6 +888,17 @@ def handle_text_message(event):
                            "Em nhận line này rồi để em nhắc mấy anh/chị bám sát mục tiêu ngày để hoàn tất tốt mục tiêu anh ạ")
             except Exception:
                 traceback.print_exc()
+            return
+
+        # ---- [TẠM THỜI - TEST] So sánh tag "@Tất cả" và tag 1 người cụ thể ----
+        # Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
+        # Xem log ở Railway để đọc status code + nội dung LINE trả về.
+        if source_type == "group" and TEST_TAG_ALL_PATTERN.match(text):
+            _test_push_tag("all")
+            return
+        if source_type == "group" and TEST_TAG_ONE_PATTERN.match(text):
+            ten_test = TEST_TAG_ONE_PATTERN.match(text).group(1)
+            _test_push_tag("user", ten_ngan=ten_test)
             return
 
         # Lệnh ĐĂNG KÝ (thay thế API bị LINE chặn) — mỗi bạn gõ "DK <Tên>" 1 lần
