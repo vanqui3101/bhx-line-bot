@@ -897,6 +897,10 @@ def handle_file_message(event):
 def handle_text_message(event):
     text = (event.message.text or "").strip()
     text_kd = _bo_dau(text)  # bản không dấu, dùng cho các lệnh mới (mục "Lệnh mới" phía dưới)
+    print(f"[FRESH-DEBUG] text raw = {text!r}")
+    print(f"[FRESH-DEBUG] text_kd (khong dau) = {text_kd!r}")
+    print(f"[FRESH-DEBUG] co_tag_bot = {_co_tag_bot(text)} | huy_mmkk_match = {bool(HUY_MMKK_TRIGGER.search(text_kd))} "
+          f"| phan_tich_match = {bool(PHAN_TICH_TRIGGER.search(text_kd))} | seafood_match = {bool(SEAFOOD_TRIGGER.search(text_kd))}")
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
         # Bot luôn trả lời đúng nơi người dùng gõ lệnh:
