@@ -12,6 +12,7 @@ Dữ liệu đọc từ storage.get_fresh_records_by_date() / get_fresh_records_
 """
 import re
 import calendar
+import unicodedata
 from datetime import datetime, date, timedelta
 
 import storage
@@ -50,17 +51,26 @@ def _ngay_str(d):
     return d.strftime("%Y-%m-%d")
 
 
+def _bo_dau(text):
+    """Bỏ dấu tiếng Việt (và hạ chữ thường) để nhận diện câu lệnh không phụ
+    thuộc cách gõ dấu, vd "hôm qua"/"hom qua", "hủy"/"huỷ" đều so khớp được."""
+    text = text or ""
+    nfkd = unicodedata.normalize("NFKD", text)
+    khong_dau = "".join(c for c in nfkd if not unicodedata.combining(c))
+    khong_dau = khong_dau.replace("đ", "d").replace("Đ", "D")
+    return khong_dau.lower()
+
+
 # ---------------------------------------------------------------------------
-# Nhận diện ngày/khoảng ngày từ câu lệnh tự do
+# Nhận diện ngày/khoảng ngày từ câu lệnh tự do (so khớp trên bản KHÔNG DẤU)
 # ---------------------------------------------------------------------------
 
-_SO_NGAY_TRUOC_RE = re.compile(r"(\d+)\s*ng[aà]y\s*tr[uướ][cớ]", re.IGNORECASE)
+_SO_NGAY_TRUOC_RE = re.compile(r"(\d+)\s*ngay\s*truoc")
 # Ngày đầu có thể chỉ ghi số ngày (không kèm tháng), mượn tháng/năm từ ngày sau
 # (vd "từ ngày 6 đến 10/8" nghĩa là 6/8 -> 10/8).
 _KHOANG_NGAY_RE = re.compile(
-    r"t[uừ]\s*ng[aà]y\s*(\d{1,2})(?:[/\-](\d{1,2})(?:[/\-](\d{2,4}))?)?"
-    r"\s*(?:đến|den|->|-)\s*(?:ng[aà]y\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?",
-    re.IGNORECASE,
+    r"tu\s*ngay\s*(\d{1,2})(?:[/\-](\d{1,2})(?:[/\-](\d{2,4}))?)?"
+    r"\s*(?:den|->|-)\s*(?:ngay\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?"
 )
 
 
@@ -71,7 +81,7 @@ def parse_date_request(text, today=None):
     Nếu không nhận diện được ngày cụ thể nào trong câu, mặc định là "hôm qua"."""
     if today is None:
         today = _today_vn()
-    t = (text or "").lower()
+    t = _bo_dau(text)
 
     m = _KHOANG_NGAY_RE.search(t)
     if m:
@@ -101,7 +111,7 @@ def parse_date_request(text, today=None):
         ngay_den = today - timedelta(days=1)
         return "range", ngay_tu, ngay_den
 
-    if "hôm nay" in t or "hom nay" in t:
+    if "hom nay" in t:
         return "single", today, today
 
     # Mặc định (kể cả khi câu chỉ có "hủy mmkk" không kèm ngày): hôm qua
@@ -112,8 +122,8 @@ def parse_date_request(text, today=None):
 def wants_comparison(text):
     """Câu có yêu cầu so sánh với ngày hôm qua/hôm trước không (chỉ dùng cho
     lệnh Phân tích số liệu — mặc định KHÔNG so sánh, trừ khi anh nói rõ)."""
-    t = (text or "").lower()
-    return ("so sánh" in t or "so sanh" in t) and ("hôm qua" in t or "hom qua" in t or "hôm trước" in t or "hom truoc" in t)
+    t = _bo_dau(text)
+    return "so sanh" in t and ("hom qua" in t or "hom truoc" in t)
 
 
 # ---------------------------------------------------------------------------
