@@ -51,9 +51,11 @@ from excel_reader import (
     is_schedule_file, read_schedule_rows,
     is_ca_schedule_file, read_ca_schedule, phan_line_assign,
     TEN_NGAN_TO_MA_NV, NOI_DUNG_CA_MAC_DINH,
+    read_fresh_rows,
 )
 from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
+import fresh_report
 import storage
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -96,6 +98,18 @@ TD_COMMAND_PATTERN = re.compile(
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
+
+# ---- Lệnh mới (HỦY TỒN + MMKK / PHÂN TÍCH / DOANH THU THỦY HẢI SẢN) ----
+# Khác với DT/MTKM/TD: gõ TỰ DO miễn có đúng cụm từ khóa trong câu, VÀ phải
+# TAG TÊN BOT trong câu thì bot mới trả lời (bot tên hiển thị "Quí 227216 - BOT").
+BOT_TAG_TEXT = "quí 227216"
+HUY_MMKK_TRIGGER = re.compile(r"h[uủ]y\s*mmkk", re.IGNORECASE)
+PHAN_TICH_TRIGGER = re.compile(r"ph[aâ]n\s*t[íi]ch\s*(s[oố]\s*li[eệ]u)?", re.IGNORECASE)
+SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*th[uủ]y\s*h[aả]i\s*s[aả]n", re.IGNORECASE)
+
+
+def _co_tag_bot(text):
+    return BOT_TAG_TEXT in (text or "").lower()
 
 # ---- [TẠM THỜI - TEST] Lệnh so sánh tag "@Tất cả" vs tag 1 người cụ thể ----
 # Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
@@ -832,6 +846,19 @@ def handle_file_message(event):
                     f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo có kèm % bán trên tồn."
                 )
                 reply_text(messaging_api, event.reply_token, reply)
+            elif file_type == "fresh":
+                fresh_rows = read_fresh_rows(tmp_path)
+                storage.save_fresh_records(fresh_rows)
+                ngay_set = sorted({r["ngay"] for r in fresh_rows})
+                ngay_bd_disp = _dt.strptime(ngay_set[0], "%Y-%m-%d").strftime("%d/%m/%Y")
+                ngay_kt_disp = _dt.strptime(ngay_set[-1], "%Y-%m-%d").strftime("%d/%m/%Y")
+                reply = (
+                    f"✅ Đã lưu dữ liệu HỦY TỒN + MMKK ({len(ngay_set)} ngày, "
+                    f"{ngay_bd_disp} - {ngay_kt_disp}), {len(fresh_rows)} dòng.\n\n"
+                    f"Tag bot + gõ \"hủy mmkk hôm qua\", \"doanh thu thủy hải sản\", "
+                    f"hoặc \"phân tích số liệu\" để xem báo cáo."
+                )
+                reply_text(messaging_api, event.reply_token, reply)
             else:
                 reply_text(
                     messaging_api, event.reply_token,
@@ -1002,6 +1029,95 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo thưởng: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+
+        # Lệnh HỦY MMKK — Công việc 1 (đúng 1 ngày) / Công việc 2 (nhiều ngày)
+        # Bắt buộc: gõ trong nhóm + có tag tên bot + câu chứa cụm "hủy mmkk".
+        if source_type == "group" and _co_tag_bot(text) and HUY_MMKK_TRIGGER.search(text):
+            try:
+                mode, ngay_tu, ngay_den = fresh_report.parse_date_request(text)
+                ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
+                if mode == "single":
+                    bubble = fresh_report.build_cong_viec_1(ten_st, ngay_tu)
+                    if bubble is None:
+                        push_text(messaging_api, target_id,
+                                   f"Chưa có dữ liệu HỦY TỒN + MMKK ngày {ngay_tu.strftime('%d/%m/%Y')}. Anh gửi file cho bot trước nhé.")
+                        return
+                    flex_message = FlexMessage(
+                        alt_text=f"Hủy tồn + MMKK {ngay_tu.strftime('%d/%m/%Y')}",
+                        contents=FlexContainer.from_dict(bubble),
+                    )
+                    messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+                    storage.save_last_command(target_id, f"huy_mmkk:{ngay_tu.strftime('%Y-%m-%d')}", _now_vn_time_str())
+                else:
+                    bubble = fresh_report.build_cong_viec_2(ten_st, ngay_tu, ngay_den)
+                    if bubble is None:
+                        push_text(messaging_api, target_id,
+                                   f"Chưa có dữ liệu HỦY TỒN + MMKK trong khoảng {ngay_tu.strftime('%d/%m')} - {ngay_den.strftime('%d/%m')}. Anh gửi file cho bot trước nhé.")
+                        return
+                    flex_message = FlexMessage(
+                        alt_text="Tổng hủy tồn + MMKK theo nhóm",
+                        contents=FlexContainer.from_dict(bubble),
+                    )
+                    messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    push_text(messaging_api, target_id, f"Có lỗi khi xử lý hủy tồn/MMKK: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+
+        # Lệnh DOANH THU THỦY HẢI SẢN
+        if source_type == "group" and _co_tag_bot(text) and SEAFOOD_TRIGGER.search(text):
+            try:
+                ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
+                bubble = fresh_report.build_doanh_thu_thuy_hai_san(ten_st)
+                if bubble is None:
+                    push_text(messaging_api, target_id,
+                               "Chưa có dữ liệu HỦY TỒN + MMKK nào được lưu. Anh gửi file cho bot trước nhé.")
+                    return
+                flex_message = FlexMessage(
+                    alt_text="Doanh thu thủy hải sản",
+                    contents=FlexContainer.from_dict(bubble),
+                )
+                messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    push_text(messaging_api, target_id, f"Có lỗi khi xử lý doanh thu thủy hải sản: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+
+        # Lệnh PHÂN TÍCH SỐ LIỆU — bắt buộc phải gõ "hủy mmkk <ngày>" trước,
+        # có kết quả rồi mới được gõ lệnh này (đúng ngày vừa hỏi).
+        if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text)
+                and not HUY_MMKK_TRIGGER.search(text)):
+            try:
+                _mode, ngay, _ngay_den = fresh_report.parse_date_request(text)
+                ngay_key = f"huy_mmkk:{ngay.strftime('%Y-%m-%d')}"
+                last_cmd = storage.get_last_command(target_id)
+                if last_cmd != ngay_key:
+                    push_text(
+                        messaging_api, target_id,
+                        f"Anh tag bot + gõ \"hủy mmkk {ngay.strftime('%d/%m')}\" trước, "
+                        f"có kết quả xong mới gõ \"phân tích số liệu\" nhé."
+                    )
+                    return
+                so_sanh = fresh_report.wants_comparison(text)
+                ket_qua = fresh_report.build_phan_tich(ngay, so_sanh_voi_hom_qua=so_sanh)
+                if ket_qua is None:
+                    push_text(messaging_api, target_id,
+                               f"Chưa có dữ liệu ngày {ngay.strftime('%d/%m/%Y')}. Anh gửi file cho bot trước nhé.")
+                    return
+                push_text(messaging_api, target_id, ket_qua)
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    push_text(messaging_api, target_id, f"Có lỗi khi phân tích: {e}")
                 except Exception:
                     traceback.print_exc()
             return
