@@ -64,12 +64,14 @@ def _header_row(ws):
 
 
 def detect_file_type(input_path):
-    """Trả về 'revenue', 'category', 'stock', hoặc None nếu không nhận diện được."""
+    """Trả về 'revenue', 'category', 'stock', 'fresh', hoặc None nếu không nhận diện được."""
     wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
     ws = wb.worksheets[0]
     headers = set(_header_row(ws))
     wb.close()
 
+    if {"SL hủy tồn", "SL mất mát kiểm kê", "ĐVT quy đổi"}.issubset(headers):
+        return "fresh"
     if {"Doanh thu offline", "Doanh thu Online", "Mã siêu thị"}.issubset(headers):
         return "revenue"
     if {"Tên sản phẩm", "Ngành hàng", "Nhóm hàng"}.issubset(headers):
@@ -340,6 +342,112 @@ def count_distinct_dates(input_path):
             dates.add(d)
     wb.close()
     return len(dates)
+
+
+# ---------------------------------------------------------------------------
+# LOẠI 4: FILE HỦY TỒN + MẤT MÁT KIỂM KÊ (FRESH) - mới thêm
+# File riêng biệt, có cột "Ngày" cụ thể từng dòng (khác file MTKM/THƯỞNG dùng
+# cột "Ngày xuất"). Dùng cho: Doanh thu thủy hải sản, Công việc 1 (chi tiết
+# từng sản phẩm), Công việc 2 (tổng theo nhóm), Phân tích số liệu.
+# ---------------------------------------------------------------------------
+
+FRESH_COL = {
+    "ngay": "Ngày",
+    "ten_sp": "Tên sản phẩm",
+    "nh_phan_tich": "Ngành hàng - Phân tích",
+    "sl_nhap": "SL thực nhập",
+    "sl_xuat": "SL thực xuất",
+    "sl_huy": "SL hủy tồn",
+    "sl_mmkk": "SL mất mát kiểm kê",
+    "dvt": "ĐVT quy đổi",
+    "thanh_tien": "Thành tiền phải thu khách hàng (chưa VAT)",
+}
+
+# Nhóm lớn dùng cho Công việc 2 (tổng theo nhóm) + báo cáo Doanh thu thủy hải sản
+FRESH_NHOM_LON = {
+    "Rau Địa Phương": "Rau củ", "Rau Đà Lạt": "Rau củ",
+    "Trái Cây Nhập Khẩu": "Trái cây", "Trái Cây Tập Trung": "Trái cây",
+    "Thịt Địa Phương": "Thịt", "Thịt Nhập Khẩu": "Thịt",
+    "Thủy Hải Sản Tập Trung": "Thủy hải sản", "Thủy Hải Sản Nhập Khẩu": "Thủy hải sản",
+    "Trứng Các Loại": "Trứng",
+}
+
+
+def _detect_don_vi(ten_sp):
+    """Suy ra đơn vị hiển thị gốc của sản phẩm từ tên (kg/hộp/gói/túi/vỉ/bó/trái).
+    Ưu tiên "(KG)" trước tiên để tránh nhận nhầm (vd "BẮP CẢI TRÁI TIM (KG)")."""
+    n = (ten_sp or "").upper()
+    if "(KG)" in n:
+        return "kg"
+    if "HỘP" in n:
+        return "hộp"
+    if "GÓI" in n:
+        return "gói"
+    if "TÚI" in n:
+        return "túi"
+    if "VỈ" in n:
+        return "vỉ"
+    if "(TRÁI)" in n:
+        return "trái"
+    if "CÂY BÓ" in n:
+        return "bó"
+    return "kg"
+
+
+def read_fresh_rows(input_path):
+    """Đọc file hủy tồn + MMKK (FRESH), trả về list các dict, mỗi dict là 1
+    dòng: {ngay, ten_sp, nganh_hang, don_vi, dvt, sl_nhap, sl_xuat, sl_huy,
+    sl_mmkk, thanh_tien}. ngay ở dạng "YYYY-MM-DD"."""
+    wb = openpyxl.load_workbook(input_path, data_only=True)
+    ws = wb.worksheets[0]
+    header_row = list(ws[1])
+
+    col_idx = {k: _find_col_index(header_row, v) for k, v in FRESH_COL.items()}
+    missing = [k for k, v in col_idx.items() if v is None]
+    if missing:
+        raise ValueError(f"Không tìm thấy các cột: {[FRESH_COL[m] for m in missing]}.")
+
+    def cell(r, key):
+        return ws.cell(row=r, column=col_idx[key]).value
+
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        ten_sp = cell(r, "ten_sp")
+        if ten_sp is None:
+            continue
+        ten_sp = str(ten_sp).strip()
+
+        ngay_val = cell(r, "ngay")
+        if isinstance(ngay_val, datetime):
+            ngay = ngay_val.strftime("%Y-%m-%d")
+        elif ngay_val:
+            try:
+                ngay = datetime.strptime(str(ngay_val)[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+            except Exception:
+                try:
+                    ngay = datetime.strptime(str(ngay_val).strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+                except Exception:
+                    continue
+        else:
+            continue
+
+        nganh_hang = str(cell(r, "nh_phan_tich") or "").strip()
+        rows.append({
+            "ngay": ngay,
+            "ten_sp": ten_sp,
+            "nganh_hang": nganh_hang,
+            "don_vi": _detect_don_vi(ten_sp),
+            "dvt": float(cell(r, "dvt") or 0),
+            "sl_nhap": float(cell(r, "sl_nhap") or 0),
+            "sl_xuat": float(cell(r, "sl_xuat") or 0),
+            "sl_huy": float(cell(r, "sl_huy") or 0),
+            "sl_mmkk": float(cell(r, "sl_mmkk") or 0),
+            "thanh_tien": float(cell(r, "thanh_tien") or 0),
+        })
+    wb.close()
+    if not rows:
+        raise ValueError("Không tìm thấy dữ liệu trong file.")
+    return rows
 
 
 def read_stock_rows(input_path):
