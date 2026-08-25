@@ -102,14 +102,30 @@ DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
 # ---- Lệnh mới (HỦY TỒN + MMKK / PHÂN TÍCH / DOANH THU THỦY HẢI SẢN) ----
 # Khác với DT/MTKM/TD: gõ TỰ DO miễn có đúng cụm từ khóa trong câu, VÀ phải
 # TAG TÊN BOT trong câu thì bot mới trả lời (bot tên hiển thị "Quí 227216 - BOT").
-BOT_TAG_TEXT = "quí 227216"
-HUY_MMKK_TRIGGER = re.compile(r"h[uủ]y\s*mmkk", re.IGNORECASE)
-PHAN_TICH_TRIGGER = re.compile(r"ph[aâ]n\s*t[íi]ch\s*(s[oố]\s*li[eệ]u)?", re.IGNORECASE)
-SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*th[uủ]y\s*h[aả]i\s*s[aả]n", re.IGNORECASE)
+#
+# Tiếng Việt có nhiều cách gõ dấu cho cùng 1 từ (vd "hủy" và "huỷ" là 1 từ,
+# chỉ khác chỗ đặt dấu) -> so khớp trên bản KHÔNG DẤU để không bị bỏ sót.
+import unicodedata
+
+
+def _bo_dau(text):
+    """Bỏ dấu tiếng Việt (và hạ chữ thường) để so khớp từ khóa không phụ
+    thuộc cách gõ dấu, vd "hủy" và "huỷ" đều thành "huy"."""
+    text = text or ""
+    nfkd = unicodedata.normalize("NFKD", text)
+    khong_dau = "".join(c for c in nfkd if not unicodedata.combining(c))
+    khong_dau = khong_dau.replace("đ", "d").replace("Đ", "D")
+    return khong_dau.lower()
+
+
+BOT_TAG_TEXT_KD = "qui 227216"
+HUY_MMKK_TRIGGER = re.compile(r"huy\s*mmkk")
+PHAN_TICH_TRIGGER = re.compile(r"phan\s*tich(\s*so\s*lieu)?")
+SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*thuy\s*hai\s*san")
 
 
 def _co_tag_bot(text):
-    return BOT_TAG_TEXT in (text or "").lower()
+    return BOT_TAG_TEXT_KD in _bo_dau(text)
 
 # ---- [TẠM THỜI - TEST] Lệnh so sánh tag "@Tất cả" vs tag 1 người cụ thể ----
 # Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
@@ -880,6 +896,7 @@ def handle_file_message(event):
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     text = (event.message.text or "").strip()
+    text_kd = _bo_dau(text)  # bản không dấu, dùng cho các lệnh mới (mục "Lệnh mới" phía dưới)
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
         # Bot luôn trả lời đúng nơi người dùng gõ lệnh:
@@ -1035,7 +1052,7 @@ def handle_text_message(event):
 
         # Lệnh HỦY MMKK — Công việc 1 (đúng 1 ngày) / Công việc 2 (nhiều ngày)
         # Bắt buộc: gõ trong nhóm + có tag tên bot + câu chứa cụm "hủy mmkk".
-        if source_type == "group" and _co_tag_bot(text) and HUY_MMKK_TRIGGER.search(text):
+        if source_type == "group" and _co_tag_bot(text) and HUY_MMKK_TRIGGER.search(text_kd):
             try:
                 mode, ngay_tu, ngay_den = fresh_report.parse_date_request(text)
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
@@ -1071,7 +1088,7 @@ def handle_text_message(event):
             return
 
         # Lệnh DOANH THU THỦY HẢI SẢN
-        if source_type == "group" and _co_tag_bot(text) and SEAFOOD_TRIGGER.search(text):
+        if source_type == "group" and _co_tag_bot(text) and SEAFOOD_TRIGGER.search(text_kd):
             try:
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
                 bubble = fresh_report.build_doanh_thu_thuy_hai_san(ten_st)
@@ -1094,8 +1111,8 @@ def handle_text_message(event):
 
         # Lệnh PHÂN TÍCH SỐ LIỆU — bắt buộc phải gõ "hủy mmkk <ngày>" trước,
         # có kết quả rồi mới được gõ lệnh này (đúng ngày vừa hỏi).
-        if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text)
-                and not HUY_MMKK_TRIGGER.search(text)):
+        if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text_kd)
+                and not HUY_MMKK_TRIGGER.search(text_kd)):
             try:
                 _mode, ngay, _ngay_den = fresh_report.parse_date_request(text)
                 ngay_key = f"huy_mmkk:{ngay.strftime('%Y-%m-%d')}"
