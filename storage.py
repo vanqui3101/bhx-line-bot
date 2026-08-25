@@ -59,6 +59,28 @@ def _connect():
             gio TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fresh_records (
+            ngay TEXT NOT NULL,
+            ten_sp TEXT NOT NULL,
+            nganh_hang TEXT,
+            don_vi TEXT,
+            dvt REAL,
+            sl_nhap REAL,
+            sl_xuat REAL,
+            sl_huy REAL,
+            sl_mmkk REAL,
+            thanh_tien REAL,
+            PRIMARY KEY (ngay, ten_sp)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bot_state (
+            target_id TEXT PRIMARY KEY,
+            last_command TEXT,
+            last_command_at TEXT
+        )
+    """)
     return conn
 
 
@@ -539,3 +561,92 @@ def get_all_dang_ky():
     rows = cur.fetchall()
     conn.close()
     return rows
+
+
+# ---------------------------------------------------------------------------
+# HỦY TỒN + MẤT MÁT KIỂM KÊ (FRESH) - mới thêm
+# Dùng cho: Doanh thu thủy hải sản, Công việc 1, Công việc 2, Phân tích số liệu.
+# Lưu theo (ngày, tên sản phẩm) — gửi trùng ngày sẽ tự cập nhật đè, không lặp.
+# ---------------------------------------------------------------------------
+
+def save_fresh_records(rows):
+    """Lưu (hoặc cập nhật) danh sách bản ghi hủy tồn/MMKK theo (ngày, sản phẩm)."""
+    conn = _connect()
+    with conn:
+        for r in rows:
+            conn.execute("""
+                INSERT INTO fresh_records
+                    (ngay, ten_sp, nganh_hang, don_vi, dvt, sl_nhap, sl_xuat, sl_huy, sl_mmkk, thanh_tien)
+                VALUES (:ngay, :ten_sp, :nganh_hang, :don_vi, :dvt, :sl_nhap, :sl_xuat, :sl_huy, :sl_mmkk, :thanh_tien)
+                ON CONFLICT(ngay, ten_sp) DO UPDATE SET
+                    nganh_hang=excluded.nganh_hang,
+                    don_vi=excluded.don_vi,
+                    dvt=excluded.dvt,
+                    sl_nhap=excluded.sl_nhap,
+                    sl_xuat=excluded.sl_xuat,
+                    sl_huy=excluded.sl_huy,
+                    sl_mmkk=excluded.sl_mmkk,
+                    thanh_tien=excluded.thanh_tien
+            """, r)
+    conn.close()
+
+
+def get_fresh_distinct_dates():
+    """Danh sách các ngày có dữ liệu FRESH, mới nhất trước."""
+    conn = _connect()
+    cur = conn.execute("SELECT DISTINCT ngay FROM fresh_records ORDER BY ngay DESC")
+    dates = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return dates
+
+
+def get_fresh_records_by_date(ngay):
+    conn = _connect()
+    cur = conn.execute("SELECT * FROM fresh_records WHERE ngay = ?", (ngay,))
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_fresh_records_range(ngay_tu, ngay_den):
+    """Lấy tất cả bản ghi FRESH trong khoảng [ngay_tu, ngay_den] (bao gồm 2 đầu),
+    dạng "YYYY-MM-DD"."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM fresh_records WHERE ngay >= ? AND ngay <= ? ORDER BY ngay",
+        (ngay_tu, ngay_den),
+    )
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# TRẠNG THÁI LỆNH GẦN NHẤT (bot_state) - mới thêm
+# Dùng để bắt buộc thứ tự: phải gõ "hủy mmkk <ngày>" trước, có kết quả xong
+# mới được gõ "phân tích số liệu" (theo đúng ngày đó) trong CÙNG nhóm/chat.
+# ---------------------------------------------------------------------------
+
+def save_last_command(target_id, command, gio=None):
+    """Lưu lệnh vừa thực hiện thành công (vd 'huy_mmkk:2026-08-24') cho 1 nơi
+    (group_id hoặc user_id riêng)."""
+    conn = _connect()
+    with conn:
+        conn.execute("""
+            INSERT INTO bot_state (target_id, last_command, last_command_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(target_id) DO UPDATE SET
+                last_command=excluded.last_command,
+                last_command_at=excluded.last_command_at
+        """, (target_id, command, gio))
+    conn.close()
+
+
+def get_last_command(target_id):
+    conn = _connect()
+    cur = conn.execute("SELECT last_command FROM bot_state WHERE target_id = ?", (target_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
