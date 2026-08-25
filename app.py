@@ -1063,30 +1063,24 @@ def handle_text_message(event):
                 if mode == "single":
                     bubble = fresh_report.build_cong_viec_1(ten_st, ngay_tu)
                     if bubble is None:
-                        push_text(messaging_api, target_id,
+                        reply_text(messaging_api, event.reply_token,
                                    f"Chưa có dữ liệu HỦY TỒN + MMKK ngày {ngay_tu.strftime('%d/%m/%Y')}. Anh gửi file cho bot trước nhé.")
                         return
-                    flex_message = FlexMessage(
-                        alt_text=f"Hủy tồn + MMKK {ngay_tu.strftime('%d/%m/%Y')}",
-                        contents=FlexContainer.from_dict(bubble),
-                    )
-                    messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+                    reply_flex(messaging_api, event.reply_token,
+                               f"Hủy tồn + MMKK {ngay_tu.strftime('%d/%m/%Y')}", bubble)
                     storage.save_last_command(target_id, f"huy_mmkk:{ngay_tu.strftime('%Y-%m-%d')}", _now_vn_time_str())
                 else:
                     bubble = fresh_report.build_cong_viec_2(ten_st, ngay_tu, ngay_den)
                     if bubble is None:
-                        push_text(messaging_api, target_id,
+                        reply_text(messaging_api, event.reply_token,
                                    f"Chưa có dữ liệu HỦY TỒN + MMKK trong khoảng {ngay_tu.strftime('%d/%m')} - {ngay_den.strftime('%d/%m')}. Anh gửi file cho bot trước nhé.")
                         return
-                    flex_message = FlexMessage(
-                        alt_text="Tổng hủy tồn + MMKK theo nhóm",
-                        contents=FlexContainer.from_dict(bubble),
-                    )
-                    messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+                    reply_flex(messaging_api, event.reply_token,
+                               "Tổng hủy tồn + MMKK theo nhóm", bubble)
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi xử lý hủy tồn/MMKK: {e}")
+                    reply_text(messaging_api, event.reply_token, f"Có lỗi khi xử lý hủy tồn/MMKK: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1097,18 +1091,14 @@ def handle_text_message(event):
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
                 bubble = fresh_report.build_doanh_thu_thuy_hai_san(ten_st)
                 if bubble is None:
-                    push_text(messaging_api, target_id,
+                    reply_text(messaging_api, event.reply_token,
                                "Chưa có dữ liệu HỦY TỒN + MMKK nào được lưu. Anh gửi file cho bot trước nhé.")
                     return
-                flex_message = FlexMessage(
-                    alt_text="Doanh thu thủy hải sản",
-                    contents=FlexContainer.from_dict(bubble),
-                )
-                messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+                reply_flex(messaging_api, event.reply_token, "Doanh thu thủy hải sản", bubble)
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi xử lý doanh thu thủy hải sản: {e}")
+                    reply_text(messaging_api, event.reply_token, f"Có lỗi khi xử lý doanh thu thủy hải sản: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1122,8 +1112,8 @@ def handle_text_message(event):
                 ngay_key = f"huy_mmkk:{ngay.strftime('%Y-%m-%d')}"
                 last_cmd = storage.get_last_command(target_id)
                 if last_cmd != ngay_key:
-                    push_text(
-                        messaging_api, target_id,
+                    reply_text(
+                        messaging_api, event.reply_token,
                         f"Anh tag bot + gõ \"hủy mmkk {ngay.strftime('%d/%m')}\" trước, "
                         f"có kết quả xong mới gõ \"phân tích số liệu\" nhé."
                     )
@@ -1131,14 +1121,14 @@ def handle_text_message(event):
                 so_sanh = fresh_report.wants_comparison(text)
                 ket_qua = fresh_report.build_phan_tich(ngay, so_sanh_voi_hom_qua=so_sanh)
                 if ket_qua is None:
-                    push_text(messaging_api, target_id,
+                    reply_text(messaging_api, event.reply_token,
                                f"Chưa có dữ liệu ngày {ngay.strftime('%d/%m/%Y')}. Anh gửi file cho bot trước nhé.")
                     return
-                push_text(messaging_api, target_id, ket_qua)
+                reply_text(messaging_api, event.reply_token, ket_qua)
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi phân tích: {e}")
+                    reply_text(messaging_api, event.reply_token, f"Có lỗi khi phân tích: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1157,6 +1147,16 @@ def reply_text(messaging_api, reply_token, text):
     text = text[:4900]
     messaging_api.reply_message(
         ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=text)])
+    )
+
+
+def reply_flex(messaging_api, reply_token, alt_text, bubble):
+    flex_message = FlexMessage(
+        alt_text=alt_text,
+        contents=FlexContainer.from_dict(bubble),
+    )
+    messaging_api.reply_message(
+        ReplyMessageRequest(reply_token=reply_token, messages=[flex_message])
     )
 
 
