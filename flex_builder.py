@@ -545,3 +545,148 @@ def build_thuong_flex_message(ten_st, payload):
         },
     }
     return contents
+
+
+# ---------------------------------------------------------------------------
+# BÁO CÁO DOANH THU THỦY HẢI SẢN — dùng lại đúng layout "BÁO CÁO NGÀNH HÀNG"
+# ---------------------------------------------------------------------------
+
+def build_seafood_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, items, doanh_thu_tong, gia_tri_huy, du_kien_cuoi_thang):
+    """items: list[(ten_sp, qty_text, pct_ban_nhap)] — dùng lại _category_section_table."""
+    body_contents = [
+        {
+            "type": "box", "layout": "horizontal", "margin": "none",
+            "contents": [
+                {"type": "text", "text": "Doanh thu:", "size": "lg", "color": BLACK, "flex": 3},
+                {"type": "text", "text": f"{_fmt_money(doanh_thu_tong)} đ", "size": "xl", "weight": "bold", "color": RED, "flex": 4, "align": "end"},
+            ],
+        },
+        _category_section_table(
+            "THỦY HẢI SẢN CÁC LOẠI",
+            None,
+            items,
+            "Không có dữ liệu trong khoảng ngày này",
+        ),
+        {"type": "separator", "margin": "xl", "color": DIVIDER},
+        _thuong_muc_box("Giá trị hủy/hao hụt (ước theo giá bán TB)", f"{_fmt_money(gia_tri_huy)} đ"),
+        _thuong_muc_box("Dự kiến doanh thu cuối tháng", f"{_fmt_money(du_kien_cuoi_thang)} đ"),
+    ]
+    return {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "DOANH THU THỦY HẢI SẢN", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": f"{ngay_bd} - {ngay_kt} (lũy kế {so_ngay} ngày)", "color": "#3D3200", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": PAGE_BG,
+            "contents": body_contents,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# CÔNG VIỆC 1 — chi tiết HỦY TỒN + MMKK từng sản phẩm (đúng 1 ngày)
+# ---------------------------------------------------------------------------
+
+def _fresh_detail_section(title, grouped_items, empty_note):
+    """grouped_items: list[(nganh_hang, [(ten_sp, qty_text), ...])], đã sắp theo
+    Ngành hàng. Mỗi ngành hàng có tiêu đề nhỏ riêng, dưới là các dòng sản phẩm."""
+    contents = [{"type": "text", "text": title, "size": "xl", "weight": "bold", "color": BLACK}]
+    if not grouped_items:
+        contents.append({"type": "text", "text": empty_note, "size": "md", "color": GRAY, "margin": "sm", "wrap": True})
+        return {"type": "box", "layout": "vertical", "margin": "lg", "contents": contents}
+
+    for nganh_hang, sp_list in grouped_items:
+        contents.append({
+            "type": "text", "text": nganh_hang, "size": "sm", "weight": "bold",
+            "color": "#1E5C8C", "margin": "md",
+        })
+        for i, (ten_sp, qty_text) in enumerate(sp_list):
+            row = {
+                "type": "box", "layout": "horizontal", "paddingAll": "6px",
+                "contents": [
+                    {"type": "text", "text": ten_sp, "size": "sm", "color": BLACK, "flex": 6, "wrap": True},
+                    {"type": "text", "text": qty_text, "size": "sm", "weight": "bold", "color": RED, "flex": 3, "align": "end", "wrap": True},
+                ],
+            }
+            if i % 2 == 1:
+                row["backgroundColor"] = ROW_ALT_BG
+            contents.append(row)
+    return {"type": "box", "layout": "vertical", "margin": "lg", "contents": contents}
+
+
+def build_fresh_detail_flex_message(ten_st, ngay_display, huy_groups, mmkk_groups, so_huy, so_mmkk):
+    body_contents = [
+        _fresh_detail_section(f"HỦY TỒN ({so_huy} sản phẩm)", huy_groups, "Không có hủy tồn ngày này"),
+        {"type": "separator", "margin": "xl", "color": DIVIDER},
+        _fresh_detail_section(f"MẤT MÁT KIỂM KÊ ({so_mmkk} sản phẩm)", mmkk_groups, "Không có MMKK ngày này"),
+    ]
+    return {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "HỦY TỒN + MMKK", "color": BLACK, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": ngay_display, "color": "#3D3200", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": PAGE_BG,
+            "contents": body_contents,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# CÔNG VIỆC 2 — tổng HỦY TỒN + MMKK theo nhóm lớn (khoảng nhiều ngày)
+# ---------------------------------------------------------------------------
+
+def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows):
+    """nhom_rows: list[(nhom, huy_text, mmkk_text, tong_text)] — 4 nhóm lớn + Trứng."""
+    table_rows = [{
+        "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "8px", "margin": "sm",
+        "contents": [
+            {"type": "text", "text": "Nhóm", "size": "sm", "weight": "bold", "color": BLACK, "flex": 4},
+            {"type": "text", "text": "Hủy tồn", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+            {"type": "text", "text": "MMKK", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
+            {"type": "text", "text": "Tổng", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "end"},
+        ],
+    }]
+    for i, (nhom, huy_text, mmkk_text, tong_text) in enumerate(nhom_rows):
+        row = {
+            "type": "box", "layout": "horizontal", "paddingAll": "8px",
+            "contents": [
+                {"type": "text", "text": nhom, "size": "sm", "color": BLACK, "flex": 4, "wrap": True},
+                {"type": "text", "text": huy_text, "size": "xs", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
+                {"type": "text", "text": mmkk_text, "size": "xs", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
+                {"type": "text", "text": tong_text, "size": "xs", "weight": "bold", "color": BLACK, "flex": 3, "align": "end", "wrap": True},
+            ],
+        }
+        if i % 2 == 1:
+            row["backgroundColor"] = ROW_ALT_BG
+        table_rows.append(row)
+
+    return {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "TỔNG HỦY TỒN + MMKK THEO NHÓM", "color": BLACK, "weight": "bold", "size": "md", "wrap": True},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": f"{ngay_bd} - {ngay_kt} ({so_ngay} ngày)", "color": "#3D3200", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": PAGE_BG,
+            "contents": table_rows,
+        },
+    }
