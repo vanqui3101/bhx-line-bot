@@ -1,10 +1,12 @@
 """
 storage.py - Lưu trữ dữ liệu doanh thu theo ngày bằng SQLite.
 
-LƯU Ý: trên gói Railway miễn phí, ổ đĩa không được lưu vĩnh viễn qua các lần
-deploy lại (redeploy) code. Dữ liệu vẫn giữ nguyên khi bot chạy bình thường,
-chỉ mất khi anh chủ động deploy code mới. Nếu cần lưu vĩnh viễn, có thể nâng
-cấp sau bằng Railway Volume hoặc Google Sheets.
+LƯU DATA VĨNH VIỄN QUA RAILWAY VOLUME:
+Nếu service này có gắn 1 Railway Volume, Railway tự động cấp biến môi trường
+RAILWAY_VOLUME_MOUNT_PATH trỏ tới thư mục ổ đĩa đó — DB sẽ được lưu trong ổ
+đĩa đó, KHÔNG bị xoá dù deploy code bao nhiêu lần nữa. Nếu chưa gắn Volume
+(vd chạy thử ở máy local), DB rơi về đường dẫn cũ trong thư mục code như
+trước (sẽ vẫn bị xoá mỗi lần deploy lại trên Railway free tier).
 
 Có 2 nhóm dữ liệu:
 1. records / snapshot_times  -> báo cáo DOANH THU (giữ nguyên như code cũ)
@@ -18,7 +20,11 @@ import json
 import calendar
 from datetime import datetime, date
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "bot.db")
+_VOLUME_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+if _VOLUME_DIR:
+    DB_PATH = os.path.join(_VOLUME_DIR, "bot.db")
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), "data", "bot.db")
 
 
 def _connect():
