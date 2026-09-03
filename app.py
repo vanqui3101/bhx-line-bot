@@ -56,6 +56,7 @@ from excel_reader import (
 from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
 import fresh_report
+import dtdk_report
 import storage
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
@@ -95,6 +96,9 @@ MTKM_COMMAND_PATTERN = re.compile(
 )
 TD_COMMAND_PATTERN = re.compile(
     r"^\s*(td|th[uư][oở]ng)\s*$", re.IGNORECASE
+)
+DTDK_COMMAND_PATTERN = re.compile(
+    r"^\s*dtdk\s*$", re.IGNORECASE
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
@@ -1006,6 +1010,24 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo doanh thu: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+
+        # Lệnh DTDK — Doanh Thu Dự Kiến (báo cáo riêng, theo tháng + tiến độ target năm)
+        if DTDK_COMMAND_PATTERN.match(text):
+            try:
+                ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
+                bubble = dtdk_report.build_dtdk(ten_st)
+                if bubble is None:
+                    reply_text(messaging_api, event.reply_token,
+                               "Chưa có dữ liệu doanh thu nào được lưu. Anh gửi file Excel doanh thu trước nhé.")
+                    return
+                reply_flex(messaging_api, event.reply_token, "Doanh thu theo tháng (DTDK)", bubble)
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    reply_text(messaging_api, event.reply_token, f"Có lỗi khi tạo báo cáo DTDK: {e}")
                 except Exception:
                     traceback.print_exc()
             return
