@@ -690,3 +690,149 @@ def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows)
             "contents": table_rows,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# LỆNH "DTDK" - Doanh Thu Dự Kiến (theo tháng + tiến độ target năm)
+# ---------------------------------------------------------------------------
+
+def _progress_bar(pct):
+    """Thanh tiến độ dạng box ngang (giả lập progress bar bằng flex ratio)."""
+    p = max(0, min(100, round(pct)))
+    remain = 100 - p
+    bar_contents = []
+    if p > 0:
+        bar_contents.append({
+            "type": "box", "layout": "vertical", "flex": p,
+            "backgroundColor": GREEN, "cornerRadius": "6px",
+            "contents": [{"type": "filler"}],
+        })
+    if remain > 0:
+        bar_contents.append({
+            "type": "box", "layout": "vertical", "flex": remain,
+            "backgroundColor": DIVIDER, "cornerRadius": "6px",
+            "contents": [{"type": "filler"}],
+        })
+    if not bar_contents:
+        bar_contents = [{
+            "type": "box", "layout": "vertical", "flex": 1,
+            "backgroundColor": DIVIDER, "contents": [{"type": "filler"}],
+        }]
+    return {
+        "type": "box", "layout": "horizontal", "height": "10px",
+        "spacing": "none", "margin": "sm", "contents": bar_contents,
+    }
+
+
+def _target_section(label, target_value, remain_value, pct):
+    return {
+        "type": "box", "layout": "vertical", "backgroundColor": ROW_BG,
+        "cornerRadius": "8px", "paddingAll": "10px", "margin": "sm",
+        "contents": [
+            {"type": "box", "layout": "horizontal", "contents": [
+                {"type": "text", "text": label, "size": "xs", "color": GRAY_LIGHT, "flex": 6, "wrap": True},
+                {"type": "text", "text": f"{_fmt_money(target_value)} đ", "size": "xs", "weight": "bold", "color": BLACK, "flex": 6, "align": "end", "wrap": True},
+            ]},
+            {"type": "box", "layout": "horizontal", "margin": "xs", "contents": [
+                {"type": "text", "text": "Còn thiếu", "size": "xs", "color": GRAY_LIGHT, "flex": 6},
+                {"type": "text", "text": f"{_fmt_money(remain_value)} đ", "size": "xs", "weight": "bold", "color": RED, "flex": 6, "align": "end", "wrap": True},
+            ]},
+            _progress_bar(pct),
+            {"type": "text", "text": f"{pct:.2f}% hoàn thành", "size": "sm", "weight": "bold", "color": GREEN, "align": "end", "margin": "xs"},
+        ],
+    }
+
+
+def build_dtdk_flex_message(ten_st, thang_hien_tai_label, tong_hien_tai, tb_ngay,
+                             du_kien_thang, month_rows, grand, target_nam, target_tang_them):
+    """month_rows: list[(label, tong_thang)] — các tháng ĐÃ QUA (không gồm tháng hiện tại)."""
+    table_rows = [{
+        "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
+        "paddingAll": "8px", "margin": "sm",
+        "contents": [
+            {"type": "text", "text": "Tháng", "size": "sm", "weight": "bold", "color": BLACK, "flex": 5},
+            {"type": "text", "text": "Doanh thu", "size": "sm", "weight": "bold", "color": BLACK, "flex": 6, "align": "end"},
+        ],
+    }]
+    for i, (label, val) in enumerate(month_rows):
+        row = {
+            "type": "box", "layout": "horizontal", "paddingAll": "8px",
+            "contents": [
+                {"type": "text", "text": label, "size": "sm", "color": BLACK, "flex": 5},
+                {"type": "text", "text": f"{_fmt_money(val)} đ", "size": "sm", "weight": "bold", "color": RED, "flex": 6, "align": "end", "wrap": True},
+            ],
+        }
+        if i % 2 == 1:
+            row["backgroundColor"] = ROW_ALT_BG
+        table_rows.append(row)
+    table_rows.append({
+        "type": "box", "layout": "horizontal", "backgroundColor": YELLOW,
+        "paddingAll": "8px", "margin": "sm", "cornerRadius": "4px",
+        "contents": [
+            {"type": "text", "text": "TỔNG", "size": "sm", "weight": "bold", "color": BLACK, "flex": 5},
+            {"type": "text", "text": f"{_fmt_money(grand)} đ", "size": "sm", "weight": "bold", "color": BLACK, "flex": 6, "align": "end", "wrap": True},
+        ],
+    })
+
+    if tong_hien_tai > 0:
+        thang_hien_tai_box = {
+            "type": "box", "layout": "vertical", "backgroundColor": ROW_BG,
+            "cornerRadius": "8px", "paddingAll": "10px", "margin": "sm",
+            "contents": [
+                {"type": "box", "layout": "horizontal", "contents": [
+                    {"type": "text", "text": "Đã có", "size": "xs", "color": GRAY_LIGHT, "flex": 5},
+                    {"type": "text", "text": f"{_fmt_money(tong_hien_tai)} đ", "size": "xs", "weight": "bold", "color": BLACK, "flex": 7, "align": "end", "wrap": True},
+                ]},
+                {"type": "box", "layout": "horizontal", "margin": "xs", "contents": [
+                    {"type": "text", "text": "TB/ngày", "size": "xs", "color": GRAY_LIGHT, "flex": 5},
+                    {"type": "text", "text": f"{_fmt_money(tb_ngay)} đ", "size": "xs", "weight": "bold", "color": BLACK, "flex": 7, "align": "end", "wrap": True},
+                ]},
+                {"type": "box", "layout": "horizontal", "margin": "xs", "contents": [
+                    {"type": "text", "text": "Dự kiến cả tháng", "size": "xs", "color": GRAY_LIGHT, "flex": 5},
+                    {"type": "text", "text": f"{_fmt_money(du_kien_thang)} đ", "size": "xs", "weight": "bold", "color": GREEN, "flex": 7, "align": "end", "wrap": True},
+                ]},
+            ],
+        }
+    else:
+        thang_hien_tai_box = {
+            "type": "box", "layout": "vertical", "backgroundColor": ROW_BG,
+            "cornerRadius": "8px", "paddingAll": "10px", "margin": "sm",
+            "contents": [{"type": "text", "text": "Chưa có dữ liệu tháng này", "size": "xs", "color": GRAY_LIGHT}],
+        }
+
+    pct_goc = (grand / target_nam * 100) if target_nam else 0
+    pct_tang = (grand / target_tang_them * 100) if target_tang_them else 0
+    remain_goc = target_nam - grand
+    remain_tang = target_tang_them - grand
+
+    body_contents = (
+        [
+            {"type": "text", "text": f"🗓️ {thang_hien_tai_label}", "size": "sm", "weight": "bold", "color": BLACK},
+            thang_hien_tai_box,
+            {"type": "separator", "margin": "lg", "color": DIVIDER},
+            {"type": "text", "text": "📅 Tổng theo tháng", "size": "sm", "weight": "bold", "color": BLACK, "margin": "lg"},
+        ]
+        + table_rows
+        + [
+            {"type": "text", "text": "🎯 Tiến độ target 2026", "size": "sm", "weight": "bold", "color": BLACK, "margin": "lg"},
+            _target_section("Target năm", target_nam, remain_goc, pct_goc),
+            _target_section("Mục tiêu tăng thêm (+15%)", target_tang_them, remain_tang, pct_tang),
+        ]
+    )
+
+    return {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": "DOANH THU THEO THÁNG", "color": BLACK, "weight": "bold", "size": "md", "wrap": True},
+                {"type": "text", "text": ten_st or "", "color": BLACK, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": "Offline + Online, chưa VAT", "color": "#3D3200", "size": "xs", "margin": "xs"},
+            ],
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "paddingAll": "16px", "backgroundColor": PAGE_BG,
+            "contents": body_contents,
+        },
+    }
