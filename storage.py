@@ -125,6 +125,17 @@ def get_records_by_date(ngay):
     return rows
 
 
+def get_all_revenue_rows():
+    """Trả về toàn bộ (ngay, dt_offline, dt_online) đã lưu — dùng cho báo cáo
+    DTDK (tổng doanh thu theo tháng + tiến độ target năm)."""
+    conn = _connect()
+    cur = conn.execute("SELECT ngay, dt_offline, dt_online FROM records")
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    conn.close()
+    return rows
+
+
 def save_snapshot_time(ngay, gio):
     """Lưu giờ mà dữ liệu ngày này được gửi vào bot (để hiển thị khung giờ so sánh)."""
     conn = _connect()
