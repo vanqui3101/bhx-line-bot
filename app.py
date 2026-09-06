@@ -17,8 +17,18 @@ CẤU HÌNH (Environment Variables):
 - GROUP_ID                   (không còn dùng để định tuyến tin nhắn — bot luôn
                                trả lời đúng nơi gõ lệnh, giữ biến này chỉ để
                                tương thích ngược nếu cần dùng lại sau này)
-- ANTHROPIC_API_KEY          (MỚI - bắt buộc cho tính năng TROLY trả lời tự do,
-                               lấy trong Anthropic Console -> API Keys)
+- ANTHROPIC_API_KEY          (bắt buộc cho tính năng TROLY trả lời tự do VÀ
+                               tính năng đọc ảnh, lấy trong Anthropic Console
+                               -> API Keys)
+
+TÍNH NĂNG MỚI - ĐỌC ẢNH + PHÂN TÍCH SỐ LIỆU TỪ ẢNH:
+- Anh gửi ảnh (chụp rõ, đủ thông tin số liệu) vào ĐÚNG đoạn chat (nhóm hoặc
+  riêng) mà anh sẽ tag bot phân tích -> bot đọc và ghi nhớ TẠM (trong RAM,
+  còn hiệu lực 2 tiếng) làm "ảnh gần nhất" của đúng đoạn chat đó.
+- Sau đó tag bot ("Quí 227216 - BOT") + gõ có cụm "phân tích số liệu" (trong
+  nhóm) -> bot đọc lại đúng ảnh vừa gửi bằng Claude Vision rồi phân tích.
+- Nếu KHÔNG có ảnh gần nhất còn hiệu lực -> quay lại luồng cũ (phân tích dựa
+  trên báo cáo "hủy mmkk" đã gửi bằng lệnh trước đó).
 """
 import os
 import re
@@ -43,7 +53,7 @@ from linebot.v3.messaging import (
     FlexMessage,
     FlexContainer,
 )
-from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent, ImageMessageContent
 from excel_reader import (
     read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
@@ -79,6 +89,23 @@ TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
+# ---------------------------------------------------------------------------
+# Cache TẠM (trong RAM, không lưu SQLite) - lưu ảnh gần nhất mỗi đoạn chat để
+# lệnh "phân tích số liệu" đọc lại đúng ảnh anh vừa gửi. Mất khi bot khởi
+# động lại (restart) - nếu mất thì anh gửi lại ảnh là được. Chỉ dùng được
+# trong vòng ANH_HET_HAN_GIAY kể từ lúc gửi, tránh phân tích nhầm ảnh cũ.
+# ---------------------------------------------------------------------------
+_ANH_GAN_NHAT = {}  # target_id (group_id hoặc user_id) -> {"data": bytes, "luc": datetime}
+ANH_HET_HAN_GIAY = 2 * 60 * 60  # 2 tiếng
+def _luu_anh_gan_nhat(target_id, image_bytes):
+    _ANH_GAN_NHAT[target_id] = {"data": image_bytes, "luc": _dt.now()}
+def _lay_anh_gan_nhat(target_id):
+    info = _ANH_GAN_NHAT.get(target_id)
+    if not info:
+        return None
+    if (_dt.now() - info["luc"]).total_seconds() > ANH_HET_HAN_GIAY:
+        return None
+    return info["data"]
 app = Flask(__name__)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -817,6 +844,36 @@ def handle_file_message(event):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 # ---------------------------------------------------------------------------
+# Nhận ẢNH — chỉ LƯU TẠM (RAM) làm "ảnh gần nhất" của đúng đoạn chat, để
+# lệnh "phân tích số liệu" (gõ sau đó, có tag bot, trong nhóm) đọc lại đúng
+# ảnh này bằng Claude Vision. KHÔNG phân tích ngay lúc nhận ảnh.
+# ---------------------------------------------------------------------------
+@handler.add(MessageEvent, message=ImageMessageContent)
+def handle_image_message(event):
+    message_id = event.message.id
+    source_type = event.source.type
+    if source_type == "group":
+        target_id = event.source.group_id
+    else:
+        target_id = getattr(event.source, "user_id", None)
+    with ApiClient(configuration) as api_client:
+        blob_api = MessagingApiBlob(api_client)
+        messaging_api = MessagingApi(api_client)
+        try:
+            content = blob_api.get_message_content(message_id)
+            _luu_anh_gan_nhat(target_id, content)
+            reply_text(
+                messaging_api, event.reply_token,
+                "Em đã nhận ảnh rồi. Anh tag bot + gõ \"phân tích số liệu\" "
+                "(trong vòng 2 tiếng) để em đọc và phân tích nhé."
+            )
+        except Exception:
+            traceback.print_exc()
+            try:
+                reply_text(messaging_api, event.reply_token, "Em nhận ảnh bị lỗi, anh gửi lại giúp em.")
+            except Exception:
+                traceback.print_exc()
+# ---------------------------------------------------------------------------
 # Nhận lệnh text — hoạt động cả khi gõ TRỰC TIẾP trong nhóm LINE
 # ---------------------------------------------------------------------------
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -1036,10 +1093,25 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-        # Lệnh PHÂN TÍCH SỐ LIỆU — bắt buộc phải gõ "hủy mmkk <ngày>" trước,
-        # có kết quả rồi mới được gõ lệnh này (đúng ngày vừa hỏi).
+        # Lệnh PHÂN TÍCH SỐ LIỆU
+        # - Nếu có ẢNH gần nhất còn hiệu lực (gửi trong vòng 2 tiếng, đúng
+        #   đoạn chat này) -> đọc ảnh bằng Claude Vision rồi phân tích (MỚI).
+        # - Nếu KHÔNG có ảnh -> quay lại luồng cũ: bắt buộc phải gõ
+        #   "hủy mmkk <ngày>" trước, có kết quả rồi mới được gõ lệnh này.
         if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text_kd)
                 and not HUY_MMKK_TRIGGER.search(text_kd)):
+            anh_data = _lay_anh_gan_nhat(target_id)
+            if anh_data is not None:
+                try:
+                    ket_qua = ai_assistant.phan_tich_anh(anh_data)
+                    reply_text(messaging_api, event.reply_token, ket_qua)
+                except Exception:
+                    traceback.print_exc()
+                    try:
+                        reply_text(messaging_api, event.reply_token, "Có lỗi khi em phân tích ảnh, thử lại giúp em nhé.")
+                    except Exception:
+                        traceback.print_exc()
+                return
             try:
                 _mode, ngay, _ngay_den = fresh_report.parse_date_request(text)
                 ngay_key = f"huy_mmkk:{ngay.strftime('%Y-%m-%d')}"
