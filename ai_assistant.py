@@ -26,6 +26,7 @@ GIỚI HẠN CỦA BẢN NÀY (nói rõ để anh Quí biết, tránh kỳ vọn
   phải SỬA LẠI trong file này rồi deploy lại, bot không tự cập nhật được.
 """
 import os
+import base64
 import requests
 from collections import defaultdict
 
@@ -246,3 +247,83 @@ def hoi_ai(cau_hoi):
         import traceback
         traceback.print_exc()
         return "Có lỗi khi em xử lý câu hỏi này, thử lại giúp em nhé."
+
+
+# ---------------------------------------------------------------------------
+# ĐỌC ẢNH + PHÂN TÍCH SỐ LIỆU TỪ ẢNH (MỚI - dùng Claude Vision)
+# ---------------------------------------------------------------------------
+def _build_system_prompt_doc_anh():
+    return f"""Bạn là TROLY, trợ lý ảo hỗ trợ anh Quí — quản lý 1 cửa hàng Bách Hóa Xanh.
+
+THÔNG TIN CỬA HÀNG:
+{STORE_INFO}
+
+NHÂN SỰ (7 bạn nhân viên dưới quyền anh Quí):
+{NHAN_SU}
+
+NHIỆM VỤ: anh vừa gửi 1 tấm ảnh chụp số liệu/bảng dữ liệu (báo cáo bán hàng,
+hủy tồn, doanh thu, hoặc số liệu khác tương tự). Bạn cần:
+1. Đọc chính xác nội dung số liệu trong ảnh. Nếu có chỗ mờ/không đọc được
+   thì nói rõ phần đó không đọc được, TUYỆT ĐỐI không suy đoán hay bịa số.
+2. Phân tích: chỉ ra ưu điểm, nhược điểm/vấn đề, nguyên nhân cụ thể (sản
+   phẩm/ngành hàng nào gây vấn đề), và đề xuất cách khắc phục/kiểm soát —
+   phải thẳng, đúng thực tế, không nói giảm nói tránh.
+3. Xưng "em", gọi người hỏi là "anh" (trừ khi có cơ sở rõ ràng người hỏi là
+   1 trong 7 bạn nhân viên ở trên thì gọi đúng tên bạn đó). Trả lời ngắn
+   gọn, đi thẳng vào việc, có thể dùng gạch đầu dòng cho dễ đọc trong LINE.
+"""
+
+
+def phan_tich_anh(image_bytes, media_type="image/jpeg"):
+    """Gửi ảnh (bytes) cho Claude Vision để đọc + phân tích số liệu trong ảnh.
+    Không bao giờ raise ra ngoài — luôn trả về 1 chuỗi text để bot reply
+    thẳng trong LINE."""
+    if not ANTHROPIC_API_KEY:
+        return "Chưa cấu hình được AI (thiếu ANTHROPIC_API_KEY trên Railway), anh báo lại giúp em."
+    if not image_bytes:
+        return "Em chưa nhận được ảnh, anh gửi lại giúp em."
+    try:
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        system_prompt = _build_system_prompt_doc_anh()
+        body = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 1200,
+            "system": system_prompt,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                    },
+                    {
+                        "type": "text",
+                        "text": "Đọc số liệu trong ảnh trên rồi phân tích giúp em theo đúng quy tắc đã nêu.",
+                    },
+                ],
+            }],
+        }
+        resp = requests.post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=body,
+            timeout=40,
+        )
+        if resp.status_code >= 300:
+            print("Loi goi Claude Vision API:", resp.status_code, resp.text)
+            return "Em đọc ảnh bị lỗi, thử lại sau giúp em nhé."
+        data = resp.json()
+        parts = data.get("content") or []
+        text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+        text = text.strip()
+        return text or "Em chưa đọc được nội dung trong ảnh, anh gửi ảnh rõ hơn giúp em."
+    except requests.exceptions.RequestException:
+        return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return "Có lỗi khi em xử lý ảnh này, thử lại giúp em nhé."
