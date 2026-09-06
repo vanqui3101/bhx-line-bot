@@ -1,6 +1,5 @@
 """
 app.py - Webhook server LINE bot báo cáo doanh thu + ngành hàng (bản 4)
-
 Luồng hoạt động (MỚI):
 1. Người dùng gửi file Excel vào bot -> bot TỰ NHẬN DIỆN loại file:
    - File "doanh thu theo siêu thị" -> lưu vào SQLite, CHỈ trả lời xác nhận.
@@ -8,18 +7,18 @@ Luồng hoạt động (MỚI):
      CHỈ trả lời xác nhận.
    => Bot KHÔNG còn tự động gửi thẻ báo cáo vào nhóm khi nhận file nữa.
       Chỉ gửi báo cáo khi có người gõ đúng lệnh (bên dưới).
-
 2. Gõ lệnh, có thể gõ TRỰC TIẾP trong nhóm LINE (không cần chat riêng với bot):
    - "DT" hoặc "báo cáo doanh thu"          -> trả về thẻ Báo cáo doanh thu
    - "MỤC TIÊU KHUYẾN MÃI" hoặc "MTKM"      -> trả về thẻ Báo cáo ngành hàng
    - "id nhóm" (gõ trong nhóm)              -> trả về Group ID của nhóm đó
-
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
 - GROUP_ID                   (không còn dùng để định tuyến tin nhắn — bot luôn
                                trả lời đúng nơi gõ lệnh, giữ biến này chỉ để
                                tương thích ngược nếu cần dùng lại sau này)
+- ANTHROPIC_API_KEY          (MỚI - bắt buộc cho tính năng TROLY trả lời tự do,
+                               lấy trong Anthropic Console -> API Keys)
 """
 import os
 import re
@@ -58,12 +57,11 @@ from excel_report import build_detail_excel
 import fresh_report
 import dtdk_report
 import storage
-
+import ai_assistant
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-
 # Lịch hỗ trợ siêu thị khác mặc định (nạp sẵn nếu chưa có file nào được gửi lên).
 # Anh có thể gửi file Excel mới (cột Ngày | Tên | Ca làm) bất cứ lúc nào để thay lịch này.
 DEFAULT_SUPPORT_SCHEDULE = [
@@ -77,16 +75,13 @@ DEFAULT_SUPPORT_SCHEDULE = [
     {"ngay": "2026-08-28", "ten": "QUYÊN", "ca": "456"},
 ]
 storage.ensure_default_schedule(DEFAULT_SUPPORT_SCHEDULE)
-
 TMP_DIR = os.path.join(os.path.dirname(__file__), "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)
-
 app = Flask(__name__)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
-
 # ---- Lệnh nhận diện (khớp cả khi gõ trong nhóm, không phân biệt hoa/thường) ----
 DT_COMMAND_PATTERN = re.compile(
     r"^\s*(dt|b[aá]o\s*c[aá]o\s*doanh\s*thu)\s*$", re.IGNORECASE
@@ -102,7 +97,6 @@ DTDK_COMMAND_PATTERN = re.compile(
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
-
 # ---- Lệnh mới (HỦY TỒN + MMKK / PHÂN TÍCH / DOANH THU THỦY HẢI SẢN) ----
 # Khác với DT/MTKM/TD: gõ TỰ DO miễn có đúng cụm từ khóa trong câu, VÀ phải
 # TAG TÊN BOT trong câu thì bot mới trả lời (bot tên hiển thị "Quí 227216 - BOT").
@@ -110,8 +104,6 @@ DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
 # Tiếng Việt có nhiều cách gõ dấu cho cùng 1 từ (vd "hủy" và "huỷ" là 1 từ,
 # chỉ khác chỗ đặt dấu) -> so khớp trên bản KHÔNG DẤU để không bị bỏ sót.
 import unicodedata
-
-
 def _bo_dau(text):
     """Bỏ dấu tiếng Việt (và hạ chữ thường) để so khớp từ khóa không phụ
     thuộc cách gõ dấu, vd "hủy" và "huỷ" đều thành "huy"."""
@@ -120,17 +112,16 @@ def _bo_dau(text):
     khong_dau = "".join(c for c in nfkd if not unicodedata.combining(c))
     khong_dau = khong_dau.replace("đ", "d").replace("Đ", "D")
     return khong_dau.lower()
-
-
 BOT_TAG_TEXT_KD = "qui 227216"
 HUY_MMKK_TRIGGER = re.compile(r"huy\s*mmkk")
 PHAN_TICH_TRIGGER = re.compile(r"phan\s*tich(\s*so\s*lieu)?")
 SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*thuy\s*hai\s*san")
-
-
 def _co_tag_bot(text):
     return BOT_TAG_TEXT_KD in _bo_dau(text)
-
+# ---- TROLY TRẢ LỜI TỰ DO (MỚI) ----
+# Dùng để cắt bỏ đoạn tag tên bot ra khỏi câu hỏi trước khi gửi cho AI, cho
+# câu hỏi sạch sẽ hơn (không bắt buộc, chỉ để câu hỏi gọn hơn khi đưa vào AI).
+BOT_NAME_STRIP_PATTERN = re.compile(r"qu[ií]\s*227216\s*-?\s*bot", re.IGNORECASE)
 # ---- [TẠM THỜI - TEST] Lệnh so sánh tag "@Tất cả" vs tag 1 người cụ thể ----
 # Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
 # Dùng để xác định nguyên nhân lỗi "not a member of the group" là do ID người
@@ -139,24 +130,17 @@ def _co_tag_bot(text):
 TEST_TAG_ALL_PATTERN = re.compile(r"^\s*test\s*tag\s*all\s*$", re.IGNORECASE)
 TEST_TAG_ME_PATTERN = re.compile(r"^\s*test\s*tag\s*me\s*$", re.IGNORECASE)
 TEST_TAG_ONE_PATTERN = re.compile(r"^\s*test\s*tag\s+([a-zA-ZÀ-ỹ]+)\s*$", re.IGNORECASE)
-
 TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh"}
 TEN_NGAN_CHUAN_HOA = {
     "mi": "Mi", "quyên": "Quyên", "quyen": "Quyên", "sang": "Sang",
     "thi": "Thi", "ánh": "Ánh", "anh": "Ánh", "linh": "Linh",
 }
-
-
 @app.route("/", methods=["GET"])
 def health():
     return "LINE bot báo cáo doanh thu + ngành hàng (bản 4) đang chạy.", 200
-
-
 @app.route("/reports/<path:filename>", methods=["GET"])
 def download_report(filename):
     return send_from_directory(REPORTS_DIR, filename, as_attachment=True)
-
-
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
@@ -166,14 +150,10 @@ def callback():
     except InvalidSignatureError:
         abort(400)
     return "OK"
-
-
 def _base_url():
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL
     return request.host_url.rstrip("/")
-
-
 def _now_vn_time_str():
     try:
         from zoneinfo import ZoneInfo
@@ -181,8 +161,6 @@ def _now_vn_time_str():
     except Exception:
         now_vn = _dt.now()
     return now_vn.strftime("%H:%M")
-
-
 # ---------------------------------------------------------------------------
 # Dựng nội dung báo cáo (dùng chung cho lệnh DT)
 # ---------------------------------------------------------------------------
@@ -204,8 +182,6 @@ def build_revenue_report_messages(base_url):
         contents=FlexContainer.from_dict(bubble),
     )
     return flex_message
-
-
 def build_category_report_message():
     """Tạo flex_message báo cáo ngành hàng mới nhất, hoặc None nếu chưa có dữ liệu."""
     ngay, ten_st, payload, _gio = storage.get_latest_category_report()
@@ -220,8 +196,6 @@ def build_category_report_message():
         contents=FlexContainer.from_dict(bubble),
     )
     return flex_message
-
-
 def build_thuong_report_message():
     """Tạo flex_message báo cáo thưởng (FRESH + FMCG) mới nhất, hoặc None nếu chưa có dữ liệu."""
     ten_st, payload, _gio = storage.get_latest_thuong_report()
@@ -233,8 +207,6 @@ def build_thuong_report_message():
         contents=FlexContainer.from_dict(bubble),
     )
     return flex_message
-
-
 # ---------------------------------------------------------------------------
 # NHẮC LỊCH HỖ TRỢ SIÊU THỊ KHÁC — tự động tag đúng người lúc 20h & 21h
 # ---------------------------------------------------------------------------
@@ -243,8 +215,6 @@ def refresh_group_members(group_id):
     (ForbiddenException: 'Access to this API is not available for your
     account'). Giữ hàm rỗng để không phải sửa các chỗ gọi tới nó."""
     return
-
-
 def _find_user_id_by_name(ten):
     """Tìm user_id đã ĐĂNG KÝ (không còn gọi API bị chặn) — mỗi bạn chỉ cần
     gõ 1 lần lệnh 'DK <Tên>' trong nhóm để bot ghi nhớ ID thật."""
@@ -253,8 +223,6 @@ def _find_user_id_by_name(ten):
     if user_id:
         return user_id, ten_norm
     return None, None
-
-
 def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
     """Gửi tin nhắn có TAG THẬT (@tên) vào nhóm — dùng "textV2" +
     "substitution" (đúng định dạng LINE yêu cầu cho tin nhắn GỬI ĐI có tag,
@@ -284,8 +252,6 @@ def _push_mention_message(group_id, display_name, user_id, ngay_hien_thi, ca):
     )
     if resp.status_code >= 300:
         print("Loi gui tin nhac lich ho tro:", resp.status_code, resp.text)
-
-
 def send_support_reminder(gio_nhac):
     """Kiểm tra lịch hỗ trợ của NGÀY MAI (nhắc trước 1 ngày, tối hôm trước),
     nếu có người thì tag nhắc vào nhóm.
@@ -318,8 +284,6 @@ def send_support_reminder(gio_nhac):
         storage.danh_dau_da_nhac(log_key, gio_nhac)
     except Exception:
         traceback.print_exc()
-
-
 # ---------------------------------------------------------------------------
 # [TẠM THỜI - TEST] So sánh tag "@Tất cả" và tag 1 người cụ thể qua textV2,
 # để xác định nguyên nhân thật của lỗi "not a member of the group":
@@ -366,8 +330,6 @@ def _test_push_tag(mode, ten_ngan=None, direct_user_id=None):
     )
     print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} direct_user_id={direct_user_id} "
           f"-> status={resp.status_code} body={resp.text}")
-
-
 # ---------------------------------------------------------------------------
 # NHẮC THEO BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN / FRESH / FMCG)
 # ---------------------------------------------------------------------------
@@ -378,19 +340,11 @@ def _noi_dung_thu_ngan_fresh(ca):
         f"Tận dụng từng lượt khách chợ {cho}\n"
         "Cảm ơn Anh/Chị"
     )
-
-
 NOI_DUNG_FMCG_CHIEU = "Xử lí nhanh hàng kho trung tâm, chỉnh chu kệ, dọn kho"
-
-
 def _is_phan_line_message(text):
     tu = text.upper()
     return "THU NGÂN" in tu and "FMCG" in tu
-
-
 TEN_TU_DONG_HOC = {"Mi": "Mi", "Quyên": "Quyên", "Sang": "Sang", "Thi": "Thi", "Ánh": "Ánh", "Linh": "Linh"}
-
-
 def _tu_dong_dang_ky_tu_mention(text, mentionees):
     """Tự động học ID thật của từng bạn ngay từ bài phân line anh gửi —
     không cần ai gõ lệnh DK gì cả. Cách làm: gộp cả phần TRONG tag lẫn đoạn
@@ -423,8 +377,6 @@ def _tu_dong_dang_ky_tu_mention(text, mentionees):
                 storage.dang_ky_thanh_vien(matched, user_id)
                 print(f"[PHANLINE-DEBUG] Tu dong hoc: {matched} = {user_id}")
                 break
-
-
 def _parse_phan_line(text, mentionees):
     """Tách bài phân line thành dữ liệu theo ca (sáng/chiều) x nhóm
     (thu_ngan_fresh / fmcg). mentionees: list các object có .index, .length,
@@ -483,8 +435,6 @@ def _parse_phan_line(text, mentionees):
         data[ca]["fmcg_text"] = "\n".join(data[ca]["fmcg_text_lines"])
         del data[ca]["fmcg_text_lines"]
     return data
-
-
 def _get_display_name(group_id, user_id):
     """[KHÔNG CÒN GỌI API] Tra tên ngắn từ danh sách đã ĐĂNG KÝ (DK <Tên>),
     không còn gọi API get_group_member_profile bị LINE chặn."""
@@ -493,8 +443,6 @@ def _get_display_name(group_id, user_id):
         return ten_ngan
     print(f"[PHANLINE-DEBUG] user_id={user_id} chua duoc dang ky (DK <Ten>) -> khong co ten de tag")
     return None
-
-
 def _push_mention_many(group_id, content, user_ids):
     """Gửi 1 tin nhắn có nội dung + tag thật NHIỀU người cùng lúc."""
     if not user_ids:
@@ -528,8 +476,6 @@ def _push_mention_many(group_id, content, user_ids):
     )
     if resp.status_code >= 300:
         print("Loi gui tin nhac phan line:", resp.status_code, resp.text)
-
-
 def _rotation_picker(candidates):
     """Xoay vòng công bằng: chọn 1 người trong danh sách, lưu trạng thái để
     lần sau (cùng danh sách này) sẽ chọn người tiếp theo."""
@@ -538,8 +484,6 @@ def _rotation_picker(candidates):
     pick = candidates[idx % len(candidates)]
     storage.advance_rotation_index(key, len(candidates))
     return pick
-
-
 def _build_phan_line_text_and_data(ngay_str, roster_for_date):
     """Từ danh sách người có mặt (sáng/chiều), áp quy tắc phân line, dựng
     sẵn văn bản (để lưu lịch sử) + substitution thật (để tag qua textV2) +
@@ -552,10 +496,8 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
     lines = []
     substitution = {}
     _placeholder_counter = [0]
-
     def them_dong(text_line):
         lines.append(text_line)
-
     def them_tag(ten_ngan):
         user_id, display_name = _find_user_id_by_name(ten_ngan)
         if user_id:
@@ -566,7 +508,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
         else:
             them_dong(f"@{ten_ngan}")
         return user_id
-
     for ca_key, ca_label_sang_chieu, ten_hien in [("sang", "sáng", "( sáng )"), ("chieu", "chieu", "(chiều)")]:
         ten_ca_key = "sang" if ca_key == "sang" else "chieu"
         names = roster_for_date.get(ca_key, [])
@@ -618,8 +559,6 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
     them_dong("==> MỤC TIÊU CỤ THỂ TỪNG ANH/CHỊ báo cáo trước 22h")
     full_text = "\n".join(lines).rstrip()
     return full_text, substitution, phan_line_data
-
-
 def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
     """Tự tạo bài phân line cho 1 ngày (từ file lịch phân ca đã lưu), đăng
     lên nhóm với tag thật, và lưu vào kho dữ liệu phân line (dùng chung cho
@@ -649,8 +588,6 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
         traceback.print_exc()
     storage.save_phan_line(target_date_str, phan_line_data)
     print(f"[CAVIEC3-DEBUG] da luu phan_line cho {target_date_str}")
-
-
 def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
     Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
@@ -687,12 +624,9 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
         print(f"[PHANLINE-DEBUG] da gui xong slot={slot}")
     except Exception:
         traceback.print_exc()
-
-
 scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
 scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0))
 scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0))
-
 # Ca sáng: THU NGÂN + FRESH -> 8h, 11h
 scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", _noi_dung_thu_ngan_fresh),
                    CronTrigger(hour=8, minute=0))
@@ -711,7 +645,6 @@ scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h"
 # FMCG chiều -> 19h (nội dung cố định)
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
                    CronTrigger(hour=19, minute=0))
-
 # ---- LỊCH TEST KHẨN CẤP (tạm thời, để debug ngay hôm nay) ----
 # Bắt đầu 15h40, lặp lại mỗi 35 phút — dùng đúng nội dung/dữ liệu ca chiều
 # THU NGÂN+FRESH thật, chỉ khác là dùng slot-key riêng mỗi lần nên không bị
@@ -725,8 +658,6 @@ def _test_phanline_reminder():
     slot_test = f"test_{now_vn.strftime('%H%M')}"
     print(f"[PHANLINE-DEBUG] === CHAY LICH TEST KHAN CAP, slot={slot_test} ===")
     send_phanline_reminder("chieu", "thu_ngan_fresh", slot_test, _noi_dung_thu_ngan_fresh)
-
-
 # ---- LỊCH TEST CÔNG VIỆC 3 (tạm thời, hôm nay 21/08) ----
 # 16h30: tự tạo + đăng bài phân line cho ngày MAI (22/08) từ file lịch phân ca.
 # 16h40: gửi thử 1 lượt nhắc THU NGÂN+FRESH ca sáng của 22/08 để test tag thật.
@@ -735,8 +666,6 @@ def _test_phanline_reminder():
 def _test_tao_phan_line_224():
     print("[CAVIEC3-DEBUG] === TEST: tao bai phan line cho 22/08 ===")
     auto_generate_and_post_phan_line("2026-08-22", test_mode=True)
-
-
 def _test_nhac_phan_line_224():
     print("[CAVIEC3-DEBUG] === TEST: gui thu nhac cho 22/08 ===")
     try:
@@ -754,8 +683,6 @@ def _test_nhac_phan_line_224():
         return
     _push_mention_many(GROUP_ID, _noi_dung_thu_ngan_fresh("sang"), user_ids)
     print("[CAVIEC3-DEBUG] === da gui thu nhac ===")
-
-
 from apscheduler.triggers.date import DateTrigger
 _gio_tao_bai = _dt(2026, 8, 22, 12, 23, 0)
 _gio_nhac_thu = _dt(2026, 8, 21, 15, 30, 0)
@@ -768,10 +695,7 @@ except Exception:
     pass
 scheduler.add_job(_test_tao_phan_line_224, DateTrigger(run_date=_gio_tao_bai))
 scheduler.add_job(_test_nhac_phan_line_224, DateTrigger(run_date=_gio_nhac_thu))
-
 scheduler.start()
-
-
 # ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
@@ -892,8 +816,6 @@ def handle_file_message(event):
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-
-
 # ---------------------------------------------------------------------------
 # Nhận lệnh text — hoạt động cả khi gõ TRỰC TIẾP trong nhóm LINE
 # ---------------------------------------------------------------------------
@@ -915,7 +837,6 @@ def handle_text_message(event):
             target_id = event.source.group_id
         else:
             target_id = getattr(event.source, "user_id", None)
-
         # Bài PHÂN LINE hàng ngày (THU NGÂN / FRESH / FMCG) — tự nhận diện,
         # KHÔNG cần lệnh gì cả. Chỉ xử lý khi gõ trong nhóm (cần group_id để
         # tra tên hiển thị + tag lại sau này).
@@ -949,7 +870,6 @@ def handle_text_message(event):
             except Exception:
                 traceback.print_exc()
             return
-
         # ---- [TẠM THỜI - TEST] So sánh tag "@Tất cả" và tag 1 người cụ thể ----
         # Gõ trong nhóm: "TEST TAG ALL" hoặc "TEST TAG <Tên>" (VD: "TEST TAG Mi").
         # Xem log ở Railway để đọc status code + nội dung LINE trả về.
@@ -964,7 +884,6 @@ def handle_text_message(event):
             ten_test = TEST_TAG_ONE_PATTERN.match(text).group(1)
             _test_push_tag("user", ten_ngan=ten_test)
             return
-
         # Lệnh ĐĂNG KÝ (thay thế API bị LINE chặn) — mỗi bạn gõ "DK <Tên>" 1 lần
         dk_match = DANG_KY_COMMAND_PATTERN.match(text)
         if dk_match:
@@ -982,7 +901,6 @@ def handle_text_message(event):
                 reply_text(messaging_api, event.reply_token,
                            "Tên chưa đúng — gõ đúng 1 trong: Mi, Quyên, Sang, Thi, Ánh, Linh. VD: DK Mi")
             return
-
         # Lệnh lấy Group ID
         if GROUP_ID_COMMAND_PATTERN.match(text):
             if source_type == "group":
@@ -990,7 +908,6 @@ def handle_text_message(event):
             else:
                 reply_text(messaging_api, event.reply_token, "Lệnh này chỉ dùng được trong nhóm (group) nhé anh.")
             return
-
         # Lệnh DT — báo cáo doanh thu
         if DT_COMMAND_PATTERN.match(text):
             try:
@@ -1013,7 +930,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh DTDK — Doanh Thu Dự Kiến (báo cáo riêng, theo tháng + tiến độ target năm)
         if DTDK_COMMAND_PATTERN.match(text):
             try:
@@ -1031,7 +947,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh MỤC TIÊU KHUYẾN MÃI — báo cáo ngành hàng
         if MTKM_COMMAND_PATTERN.match(text):
             try:
@@ -1053,7 +968,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh TD / THƯỞNG — báo cáo thưởng FRESH + FMCG
         if TD_COMMAND_PATTERN.match(text):
             try:
@@ -1075,7 +989,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh HỦY MMKK — Công việc 1 (đúng 1 ngày) / Công việc 2 (nhiều ngày)
         # Bắt buộc: gõ trong nhóm + có tag tên bot + câu chứa cụm "hủy mmkk".
         if source_type == "group" and _co_tag_bot(text) and HUY_MMKK_TRIGGER.search(text_kd):
@@ -1106,7 +1019,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh DOANH THU THỦY HẢI SẢN
         if source_type == "group" and _co_tag_bot(text) and SEAFOOD_TRIGGER.search(text_kd):
             try:
@@ -1124,7 +1036,6 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
         # Lệnh PHÂN TÍCH SỐ LIỆU — bắt buộc phải gõ "hủy mmkk <ngày>" trước,
         # có kết quả rồi mới được gõ lệnh này (đúng ngày vừa hỏi).
         if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text_kd)
@@ -1154,24 +1065,36 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-
-        # Không khớp lệnh nào -> bỏ qua, không phản hồi.
-
-
+        # ---- TROLY TRẢ LỜI TỰ DO (MỚI - dùng Claude API) ----
+        # Không khớp lệnh cố định nào ở trên -> coi như câu hỏi tự do.
+        # Trong nhóm: bắt buộc phải tag tên bot mới trả lời (tránh bot xen
+        # vào chat thường của mọi người). Chat riêng 1-1 với bot: hỏi gì
+        # cũng được, không cần tag vì đã là nhắn riêng cho bot rồi.
+        if source_type == "group" and not _co_tag_bot(text):
+            return
+        cau_hoi = BOT_NAME_STRIP_PATTERN.sub("", text).strip()
+        if not cau_hoi:
+            return
+        try:
+            tra_loi = ai_assistant.hoi_ai(cau_hoi)
+            reply_text(messaging_api, event.reply_token, tra_loi)
+        except Exception:
+            traceback.print_exc()
+            try:
+                reply_text(messaging_api, event.reply_token, "Em chưa trả lời được câu này, thử lại sau giúp em nhé.")
+            except Exception:
+                traceback.print_exc()
+        return
 def push_text(messaging_api, target_id, text):
     text = text[:4900]
     messaging_api.push_message(
         PushMessageRequest(to=target_id, messages=[TextMessage(text=text)])
     )
-
-
 def reply_text(messaging_api, reply_token, text):
     text = text[:4900]
     messaging_api.reply_message(
         ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=text)])
     )
-
-
 def reply_flex(messaging_api, reply_token, alt_text, bubble):
     flex_message = FlexMessage(
         alt_text=alt_text,
@@ -1180,8 +1103,6 @@ def reply_flex(messaging_api, reply_token, alt_text, bubble):
     messaging_api.reply_message(
         ReplyMessageRequest(reply_token=reply_token, messages=[flex_message])
     )
-
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
