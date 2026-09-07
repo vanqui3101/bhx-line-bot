@@ -106,6 +106,11 @@ def _lay_anh_gan_nhat(target_id):
     if (_dt.now() - info["luc"]).total_seconds() > ANH_HET_HAN_GIAY:
         return None
     return info["data"]
+def _xoa_anh_gan_nhat(target_id):
+    """Xoá ảnh đang lưu tạm của đoạn chat này — gọi khi có lệnh báo cáo mới
+    (DT/MTKM) chạy, để lệnh "phân tích số liệu" sau đó không lỡ dùng nhầm
+    ảnh cũ còn sót lại (ưu tiên đúng hành động gần nhất anh vừa làm)."""
+    _ANH_GAN_NHAT.pop(target_id, None)
 app = Flask(__name__)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -862,11 +867,9 @@ def handle_image_message(event):
         try:
             content = blob_api.get_message_content(message_id)
             _luu_anh_gan_nhat(target_id, content)
-            reply_text(
-                messaging_api, event.reply_token,
-                "Em đã nhận ảnh rồi. Anh tag bot + gõ \"phân tích số liệu\" "
-                "(trong vòng 2 tiếng) để em đọc và phân tích nhé."
-            )
+            # Theo yêu cầu anh Quí: nhận ảnh xong KHÔNG trả lời gì cả (im
+            # lặng lưu tạm), tránh làm phiền nhóm chat. Chỉ khi lưu bị lỗi
+            # (ảnh tải về thất bại) mới báo, để anh biết mà gửi lại.
         except Exception:
             traceback.print_exc()
             try:
@@ -980,6 +983,8 @@ def handle_text_message(event):
                 messaging_api.push_message(
                     PushMessageRequest(to=target_id, messages=[flex_message])
                 )
+                storage.save_last_command(target_id, "DT", _now_vn_time_str())
+                _xoa_anh_gan_nhat(target_id)
             except Exception as e:
                 traceback.print_exc()
                 try:
@@ -1018,6 +1023,8 @@ def handle_text_message(event):
                 messaging_api.push_message(
                     PushMessageRequest(to=target_id, messages=[flex_message])
                 )
+                storage.save_last_command(target_id, "MTKM", _now_vn_time_str())
+                _xoa_anh_gan_nhat(target_id)
             except Exception as e:
                 traceback.print_exc()
                 try:
@@ -1093,11 +1100,14 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-        # Lệnh PHÂN TÍCH SỐ LIỆU
-        # - Nếu có ẢNH gần nhất còn hiệu lực (gửi trong vòng 2 tiếng, đúng
-        #   đoạn chat này) -> đọc ảnh bằng Claude Vision rồi phân tích (MỚI).
-        # - Nếu KHÔNG có ảnh -> quay lại luồng cũ: bắt buộc phải gõ
-        #   "hủy mmkk <ngày>" trước, có kết quả rồi mới được gõ lệnh này.
+        # Lệnh PHÂN TÍCH SỐ LIỆU — thứ tự ưu tiên:
+        # 1. Có ẢNH gần nhất còn hiệu lực (gửi trong vòng 2 tiếng, đúng đoạn
+        #    chat này) -> đọc ảnh bằng Claude Vision rồi phân tích.
+        # 2. Không có ảnh, nhưng lệnh gần nhất trong đoạn chat này là "DT"
+        #    hoặc "MTKM" -> phân tích luôn báo cáo đó bằng data đã có sẵn
+        #    trong hệ thống (dùng Claude, không cần gửi ảnh/file gì thêm).
+        # 3. Không khớp 2 trường hợp trên -> quay lại luồng cũ: bắt buộc
+        #    phải gõ "hủy mmkk <ngày>" trước, có kết quả rồi mới phân tích.
         if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text_kd)
                 and not HUY_MMKK_TRIGGER.search(text_kd)):
             anh_data = _lay_anh_gan_nhat(target_id)
@@ -1109,6 +1119,21 @@ def handle_text_message(event):
                     traceback.print_exc()
                     try:
                         reply_text(messaging_api, event.reply_token, "Có lỗi khi em phân tích ảnh, thử lại giúp em nhé.")
+                    except Exception:
+                        traceback.print_exc()
+                return
+            last_cmd_bao_cao = storage.get_last_command(target_id)
+            if last_cmd_bao_cao in ("DT", "MTKM"):
+                try:
+                    if last_cmd_bao_cao == "DT":
+                        ket_qua = ai_assistant.phan_tich_doanh_thu()
+                    else:
+                        ket_qua = ai_assistant.phan_tich_nganh_hang()
+                    reply_text(messaging_api, event.reply_token, ket_qua)
+                except Exception:
+                    traceback.print_exc()
+                    try:
+                        reply_text(messaging_api, event.reply_token, "Có lỗi khi em phân tích, thử lại giúp em nhé.")
                     except Exception:
                         traceback.print_exc()
                 return
