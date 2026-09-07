@@ -274,6 +274,83 @@ hủy tồn, doanh thu, hoặc số liệu khác tương tự). Bạn cần:
 """
 
 
+def _build_system_prompt_phan_tich_du_lieu():
+    return f"""Bạn là TROLY, trợ lý ảo hỗ trợ anh Quí — quản lý 1 cửa hàng Bách Hóa Xanh.
+
+THÔNG TIN CỬA HÀNG:
+{STORE_INFO}
+
+NHÂN SỰ (7 bạn nhân viên dưới quyền anh Quí):
+{NHAN_SU}
+
+NHIỆM VỤ: phân tích đúng số liệu báo cáo được cung cấp bên dưới (đã lấy sẵn
+từ hệ thống, KHÔNG suy đoán/bịa thêm số liệu ngoài phạm vi đã cho). Chỉ ra
+ưu điểm, nhược điểm/vấn đề, nguyên nhân cụ thể, và đề xuất cách khắc phục/
+kiểm soát — phải thẳng, đúng thực tế, không nói giảm nói tránh, tư duy phân
+tích sâu (không trả lời hời hợt, qua loa).
+Xưng "em", gọi người hỏi là "anh". Trả lời ngắn gọn, đi thẳng vào việc, có
+thể dùng gạch đầu dòng cho dễ đọc trong LINE.
+"""
+
+
+def phan_tich_du_lieu(tieu_de, noi_dung):
+    """Phân tích 1 đoạn dữ liệu TEXT đã có sẵn trong hệ thống (vd báo cáo
+    doanh thu/ngành hàng) bằng Claude. Không bao giờ raise ra ngoài."""
+    if not ANTHROPIC_API_KEY:
+        return "Chưa cấu hình được AI (thiếu ANTHROPIC_API_KEY trên Railway), anh báo lại giúp em."
+    if not noi_dung or not noi_dung.strip():
+        return "Chưa có dữ liệu để phân tích, anh gõ lệnh lấy báo cáo trước giúp em."
+    try:
+        system_prompt = _build_system_prompt_phan_tich_du_lieu()
+        body = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 1000,
+            "system": system_prompt,
+            "messages": [{
+                "role": "user",
+                "content": f"Phân tích giúp em báo cáo \"{tieu_de}\" sau:\n\n{noi_dung}",
+            }],
+        }
+        resp = requests.post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=body,
+            timeout=30,
+        )
+        if resp.status_code >= 300:
+            print("Loi goi Claude API (phan tich du lieu):", resp.status_code, resp.text)
+            return "Em phân tích bị lỗi, thử lại sau giúp em nhé."
+        data = resp.json()
+        parts = data.get("content") or []
+        text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+        text = text.strip()
+        return text or "Em chưa phân tích được, anh hỏi lại giúp em."
+    except requests.exceptions.RequestException:
+        return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return "Có lỗi khi em phân tích, thử lại giúp em nhé."
+
+
+def phan_tich_doanh_thu():
+    """Phân tích báo cáo DOANH THU đang có trong hệ thống (dùng khi anh gõ
+    'DT' rồi tag bot + 'phân tích số liệu' ngay sau đó)."""
+    noi_dung = _an_toan(_context_doanh_thu, "Chưa có dữ liệu doanh thu.")
+    return phan_tich_du_lieu("Báo cáo doanh thu", noi_dung)
+
+
+def phan_tich_nganh_hang():
+    """Phân tích báo cáo NGÀNH HÀNG/MTKM đang có trong hệ thống (dùng khi anh
+    gõ 'MTKM' rồi tag bot + 'phân tích số liệu' ngay sau đó)."""
+    noi_dung = _an_toan(_context_nganh_hang, "Chưa có dữ liệu ngành hàng (MTKM).")
+    return phan_tich_du_lieu("Báo cáo ngành hàng (MTKM)", noi_dung)
+
+
 def phan_tich_anh(image_bytes, media_type="image/jpeg"):
     """Gửi ảnh (bytes) cho Claude Vision để đọc + phân tích số liệu trong ảnh.
     Không bao giờ raise ra ngoài — luôn trả về 1 chuỗi text để bot reply
