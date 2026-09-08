@@ -14,6 +14,14 @@ NGUYÊN TẮC TRẢ LỜI (đã thống nhất với anh Quí):
 - Câu hỏi ngoài phạm vi dữ liệu đã có -> trả lời thẳng "chưa có dữ liệu",
   KHÔNG suy đoán/bịa số.
 - Xưng "em", gọi người hỏi là "anh". Trả lời ngắn gọn, đi thẳng vào việc.
+- Bot NHỚ được cuộc trò chuyện gần đây của TỪNG đoạn chat riêng (nhóm/1-1
+  đều tách riêng, không lẫn giữa các nhóm/người khác nhau) — hỏi tiếp câu
+  sau vẫn hiểu ngữ cảnh câu trước, không cần lặp lại từ đầu. Nhớ trong vòng
+  2 tiếng không hỏi gì thêm thì quên (RAM, không lưu SQLite, mất khi bot
+  khởi động lại).
+- Khi thiếu thông tin để trả lời/phân tích chính xác, bot chủ động HỎI LẠI
+  anh Quí cần biết thêm gì (giống cách 1 trợ lý thật sẽ hỏi lại), thay vì tự
+  suy đoán hoặc chỉ trả lời cụt "chưa có dữ liệu".
 
 GIỚI HẠN CỦA BẢN NÀY (nói rõ để anh Quí biết, tránh kỳ vọng sai):
 - Chưa có data "Lợi nhuận theo ngành hàng" (giá vốn cơ bản) và chưa có data
@@ -26,6 +34,7 @@ GIỚI HẠN CỦA BẢN NÀY (nói rõ để anh Quí biết, tránh kỳ vọn
   phải SỬA LẠI trong file này rồi deploy lại, bot không tự cập nhật được.
 """
 import os
+import time
 import base64
 import requests
 from collections import defaultdict
@@ -35,6 +44,37 @@ import storage
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = "claude-sonnet-5"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+# ---------------------------------------------------------------------------
+# BỘ NHỚ HỘI THOẠI TẠM (RAM, không lưu SQLite) — mỗi đoạn chat (nhóm hoặc
+# riêng) có lịch sử RIÊNG, không lẫn với đoạn chat khác. Quên sau 2 tiếng
+# không hỏi gì thêm, và chỉ giữ tối đa 1 số lượt gần nhất để câu hỏi không
+# phình to quá mức mỗi lần gọi API.
+# ---------------------------------------------------------------------------
+_LICH_SU_CHAT = {}  # target_id -> {"turns": [{"role":..., "content":...}], "luc": epoch}
+LICH_SU_HET_HAN_GIAY = 2 * 60 * 60  # 2 tiếng
+LICH_SU_TOI_DA_LUOT = 12  # tối đa 12 lượt (~6 câu hỏi + 6 câu trả lời)
+
+
+def _lay_lich_su(target_id):
+    if not target_id:
+        return []
+    info = _LICH_SU_CHAT.get(target_id)
+    if not info:
+        return []
+    if time.time() - info["luc"] > LICH_SU_HET_HAN_GIAY:
+        _LICH_SU_CHAT.pop(target_id, None)
+        return []
+    return info["turns"]
+
+
+def _luu_luot_chat(target_id, vai_tro, noi_dung):
+    if not target_id or not noi_dung:
+        return
+    info = _LICH_SU_CHAT.setdefault(target_id, {"turns": [], "luc": time.time()})
+    info["turns"].append({"role": vai_tro, "content": noi_dung})
+    info["turns"] = info["turns"][-LICH_SU_TOI_DA_LUOT:]
+    info["luc"] = time.time()
 
 # ---------------------------------------------------------------------------
 # DỮ LIỆU TĨNH (gõ tay, sửa trực tiếp ở đây khi có gì thay đổi)
@@ -207,21 +247,28 @@ QUY TẮC TRẢ LỜI (bắt buộc tuân thủ):
 """
 
 
-def hoi_ai(cau_hoi):
+def hoi_ai(cau_hoi, target_id=None):
     """Gửi câu hỏi tự do lên Claude API, trả về chuỗi text để bot reply lại
     trong LINE. Không bao giờ raise exception ra ngoài — luôn trả về 1
-    chuỗi (kể cả khi lỗi), để app.py chỉ cần reply_text() thẳng kết quả."""
+    chuỗi (kể cả khi lỗi), để app.py chỉ cần reply_text() thẳng kết quả.
+
+    target_id: truyền vào (group_id hoặc user_id) để bot NHỚ lịch sử hội
+    thoại riêng của đúng đoạn chat đó (không bắt buộc — không truyền thì
+    vẫn trả lời được, chỉ là không nhớ ngữ cảnh câu trước)."""
     if not ANTHROPIC_API_KEY:
         return "Chưa cấu hình được AI (thiếu ANTHROPIC_API_KEY trên Railway), anh báo lại giúp em."
     if not cau_hoi or not cau_hoi.strip():
         return "Anh hỏi em gì đó cụ thể giúp em nhé."
+    cau_hoi = cau_hoi.strip()
     try:
         system_prompt = _build_system_prompt()
+        messages = list(_lay_lich_su(target_id))
+        messages.append({"role": "user", "content": cau_hoi})
         body = {
             "model": ANTHROPIC_MODEL,
             "max_tokens": 700,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": cau_hoi.strip()}],
+            "messages": messages,
         }
         resp = requests.post(
             ANTHROPIC_URL,
@@ -240,7 +287,10 @@ def hoi_ai(cau_hoi):
         parts = data.get("content") or []
         text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
         text = text.strip()
-        return text or "Em chưa nghĩ ra câu trả lời, anh hỏi lại giúp em."
+        ket_qua = text or "Em chưa nghĩ ra câu trả lời, anh hỏi lại giúp em."
+        _luu_luot_chat(target_id, "user", cau_hoi)
+        _luu_luot_chat(target_id, "assistant", ket_qua)
+        return ket_qua
     except requests.exceptions.RequestException:
         return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
     except Exception:
@@ -293,9 +343,13 @@ thể dùng gạch đầu dòng cho dễ đọc trong LINE.
 """
 
 
-def phan_tich_du_lieu(tieu_de, noi_dung):
+def phan_tich_du_lieu(tieu_de, noi_dung, target_id=None):
     """Phân tích 1 đoạn dữ liệu TEXT đã có sẵn trong hệ thống (vd báo cáo
-    doanh thu/ngành hàng) bằng Claude. Không bao giờ raise ra ngoài."""
+    doanh thu/ngành hàng) bằng Claude. Không bao giờ raise ra ngoài.
+
+    target_id: truyền vào để lưu kết quả phân tích này vào chung lịch sử
+    hội thoại của đoạn chat đó — nhờ vậy sau đó anh hỏi tiếp qua hoi_ai()
+    (câu hỏi tự do) vẫn hiểu đang nói về báo cáo nào."""
     if not ANTHROPIC_API_KEY:
         return "Chưa cấu hình được AI (thiếu ANTHROPIC_API_KEY trên Railway), anh báo lại giúp em."
     if not noi_dung or not noi_dung.strip():
@@ -328,7 +382,10 @@ def phan_tich_du_lieu(tieu_de, noi_dung):
         parts = data.get("content") or []
         text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
         text = text.strip()
-        return text or "Em chưa phân tích được, anh hỏi lại giúp em."
+        ket_qua = text or "Em chưa phân tích được, anh hỏi lại giúp em."
+        _luu_luot_chat(target_id, "user", f"[Yêu cầu phân tích số liệu] {tieu_de}")
+        _luu_luot_chat(target_id, "assistant", ket_qua)
+        return ket_qua
     except requests.exceptions.RequestException:
         return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
     except Exception:
@@ -337,21 +394,21 @@ def phan_tich_du_lieu(tieu_de, noi_dung):
         return "Có lỗi khi em phân tích, thử lại giúp em nhé."
 
 
-def phan_tich_doanh_thu():
+def phan_tich_doanh_thu(target_id=None):
     """Phân tích báo cáo DOANH THU đang có trong hệ thống (dùng khi anh gõ
     'DT' rồi tag bot + 'phân tích số liệu' ngay sau đó)."""
     noi_dung = _an_toan(_context_doanh_thu, "Chưa có dữ liệu doanh thu.")
-    return phan_tich_du_lieu("Báo cáo doanh thu", noi_dung)
+    return phan_tich_du_lieu("Báo cáo doanh thu", noi_dung, target_id=target_id)
 
 
-def phan_tich_nganh_hang():
+def phan_tich_nganh_hang(target_id=None):
     """Phân tích báo cáo NGÀNH HÀNG/MTKM đang có trong hệ thống (dùng khi anh
     gõ 'MTKM' rồi tag bot + 'phân tích số liệu' ngay sau đó)."""
     noi_dung = _an_toan(_context_nganh_hang, "Chưa có dữ liệu ngành hàng (MTKM).")
-    return phan_tich_du_lieu("Báo cáo ngành hàng (MTKM)", noi_dung)
+    return phan_tich_du_lieu("Báo cáo ngành hàng (MTKM)", noi_dung, target_id=target_id)
 
 
-def phan_tich_anh(image_bytes, media_type="image/jpeg"):
+def phan_tich_anh(image_bytes, media_type="image/jpeg", target_id=None):
     """Gửi ảnh (bytes) cho Claude Vision để đọc + phân tích số liệu trong ảnh.
     Không bao giờ raise ra ngoài — luôn trả về 1 chuỗi text để bot reply
     thẳng trong LINE."""
@@ -397,7 +454,10 @@ def phan_tich_anh(image_bytes, media_type="image/jpeg"):
         parts = data.get("content") or []
         text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
         text = text.strip()
-        return text or "Em chưa đọc được nội dung trong ảnh, anh gửi ảnh rõ hơn giúp em."
+        ket_qua = text or "Em chưa đọc được nội dung trong ảnh, anh gửi ảnh rõ hơn giúp em."
+        _luu_luot_chat(target_id, "user", "[Anh gửi 1 ảnh chụp số liệu để phân tích]")
+        _luu_luot_chat(target_id, "assistant", ket_qua)
+        return ket_qua
     except requests.exceptions.RequestException:
         return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
     except Exception:
