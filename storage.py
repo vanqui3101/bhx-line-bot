@@ -1,32 +1,30 @@
 """
 storage.py - Lưu trữ dữ liệu doanh thu theo ngày bằng SQLite.
-
 LƯU DATA VĨNH VIỄN QUA RAILWAY VOLUME:
 Nếu service này có gắn 1 Railway Volume, Railway tự động cấp biến môi trường
 RAILWAY_VOLUME_MOUNT_PATH trỏ tới thư mục ổ đĩa đó — DB sẽ được lưu trong ổ
 đĩa đó, KHÔNG bị xoá dù deploy code bao nhiêu lần nữa. Nếu chưa gắn Volume
 (vd chạy thử ở máy local), DB rơi về đường dẫn cũ trong thư mục code như
 trước (sẽ vẫn bị xoá mỗi lần deploy lại trên Railway free tier).
-
 Có 2 nhóm dữ liệu:
 1. records / snapshot_times  -> báo cáo DOANH THU (giữ nguyên như code cũ)
 2. category_reports          -> báo cáo NGÀNH HÀNG (Nấm / Bánh trung thu / C2),
    mới thêm để phục vụ lệnh "MỤC TIÊU KHUYẾN MÃI"
+3. nhat_ky_nhan_vien         -> MỚI (08/09/2026): nhật ký tin nhắn hàng ngày
+   của từng bạn nhân viên trong nhóm (không cần cú pháp gì đặc biệt), dùng
+   làm "báo cáo thực tế" cho tính năng "nhận xét mục tiêu" (so với mục tiêu
+   lấy từ bài phân line, đã lưu sẵn trong bảng phan_line/data_json).
 """
-
 import sqlite3
 import os
 import json
 import calendar
 from datetime import datetime, date
-
 _VOLUME_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
 if _VOLUME_DIR:
     DB_PATH = os.path.join(_VOLUME_DIR, "bot.db")
 else:
     DB_PATH = os.path.join(os.path.dirname(__file__), "data", "bot.db")
-
-
 def _connect():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -88,12 +86,9 @@ def _connect():
         )
     """)
     return conn
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO DOANH THU (giữ nguyên như code cũ)
 # ---------------------------------------------------------------------------
-
 def save_records(rows):
     """Lưu (hoặc cập nhật) danh sách bản ghi doanh thu theo ngày."""
     conn = _connect()
@@ -111,8 +106,6 @@ def save_records(rows):
                     bill_online=excluded.bill_online
             """, r)
     conn.close()
-
-
 def get_distinct_dates():
     """Trả về danh sách các ngày có dữ liệu, sắp xếp mới nhất trước."""
     conn = _connect()
@@ -120,8 +113,6 @@ def get_distinct_dates():
     dates = [row[0] for row in cur.fetchall()]
     conn.close()
     return dates
-
-
 def get_records_by_date(ngay):
     conn = _connect()
     cur = conn.execute("SELECT * FROM records WHERE ngay = ?", (ngay,))
@@ -129,8 +120,6 @@ def get_records_by_date(ngay):
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
-
-
 def get_all_revenue_rows():
     """Trả về toàn bộ (ngay, dt_offline, dt_online) đã lưu — dùng cho báo cáo
     DTDK (tổng doanh thu theo tháng + tiến độ target năm)."""
@@ -140,8 +129,6 @@ def get_all_revenue_rows():
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
-
-
 def save_snapshot_time(ngay, gio):
     """Lưu giờ mà dữ liệu ngày này được gửi vào bot (để hiển thị khung giờ so sánh)."""
     conn = _connect()
@@ -151,8 +138,6 @@ def save_snapshot_time(ngay, gio):
             ON CONFLICT(ngay) DO UPDATE SET gio=excluded.gio
         """, (ngay, gio))
     conn.close()
-
-
 def get_snapshot_time(ngay):
     if not ngay:
         return None
@@ -161,8 +146,6 @@ def get_snapshot_time(ngay):
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
-
-
 def _same_day_last_month(ngay_str):
     """Trả về ngày cùng số ngày của tháng trước (vd 15/08 -> 15/07).
     Nếu tháng trước không có ngày đó (vd 31 -> tháng thiếu), lấy ngày cuối tháng trước."""
@@ -174,8 +157,6 @@ def _same_day_last_month(ngay_str):
     last_day_of_prev_month = calendar.monthrange(year, month)[1]
     day = min(d.day, last_day_of_prev_month)
     return date(year, month, day).strftime("%Y-%m-%d")
-
-
 def get_latest_and_previous():
     """Trả về (ngay_moi_nhat, records_moi_nhat, ngay_so_sanh, records_so_sanh).
     Kỳ so sánh là CÙNG NGÀY của THÁNG TRƯỚC (vd 15/08 so với 15/07).
@@ -185,19 +166,14 @@ def get_latest_and_previous():
         return None, [], None, []
     latest = dates[0]
     latest_records = get_records_by_date(latest)
-
     target_prev = _same_day_last_month(latest)
     if target_prev in dates:
         prev_records = get_records_by_date(target_prev)
         return latest, latest_records, target_prev, prev_records
-
     return latest, latest_records, None, []
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO NGÀNH HÀNG (Nấm / Bánh trung thu / C2) - mới thêm
 # ---------------------------------------------------------------------------
-
 def save_category_report(ngay, ten_st, payload, gio=None):
     """Lưu (hoặc cập nhật) 1 báo cáo ngành hàng theo (ngày, siêu thị)."""
     conn = _connect()
@@ -210,8 +186,6 @@ def save_category_report(ngay, ten_st, payload, gio=None):
                 gio=excluded.gio
         """, (ngay, ten_st, json.dumps(payload, ensure_ascii=False), gio))
     conn.close()
-
-
 def get_latest_category_report():
     """Trả về (ngay, ten_st, payload_dict, gio) của báo cáo ngành hàng mới nhất,
     hoặc (None, None, None, None) nếu chưa có dữ liệu."""
@@ -226,12 +200,9 @@ def get_latest_category_report():
         return None, None, None, None
     ngay, ten_st, payload_json, gio = row
     return ngay, ten_st, json.loads(payload_json), gio
-
-
 # ---------------------------------------------------------------------------
 # TỒN KHO (BC tồn theo model) - mới thêm
 # ---------------------------------------------------------------------------
-
 def save_stock_snapshot(ten_st, payload, gio=None):
     """Lưu (hoặc ghi đè) snapshot tồn kho mới nhất của 1 siêu thị."""
     conn = _connect()
@@ -244,8 +215,6 @@ def save_stock_snapshot(ten_st, payload, gio=None):
                 gio=excluded.gio
         """, (ten_st, json.dumps(payload, ensure_ascii=False), gio))
     conn.close()
-
-
 def get_latest_stock_snapshot():
     """Trả về (ten_st, payload_dict, gio) của snapshot tồn kho mới nhất,
     hoặc (None, None, None) nếu chưa có dữ liệu."""
@@ -259,12 +228,9 @@ def get_latest_stock_snapshot():
         return None, None, None
     ten_st, payload_json, gio = row
     return ten_st, json.loads(payload_json), gio
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO THƯỞNG (FRESH + FMCG) - mới thêm
 # ---------------------------------------------------------------------------
-
 def save_thuong_report(ten_st, payload, gio=None):
     """Lưu (ghi đè) báo cáo thưởng mới nhất của 1 siêu thị."""
     conn = _connect()
@@ -284,8 +250,6 @@ def save_thuong_report(ten_st, payload, gio=None):
                 gio=excluded.gio
         """, (ten_st, json.dumps(payload, ensure_ascii=False), gio))
     conn.close()
-
-
 def get_latest_thuong_report():
     """Trả về (ten_st, payload_dict, gio) báo cáo thưởng mới nhất,
     hoặc (None, None, None) nếu chưa có dữ liệu."""
@@ -304,12 +268,9 @@ def get_latest_thuong_report():
         return None, None, None
     ten_st, payload_json, gio = row
     return ten_st, json.loads(payload_json), gio
-
-
 # ---------------------------------------------------------------------------
 # NHẮC LỊCH HỖ TRỢ SIÊU THỊ KHÁC - mới thêm
 # ---------------------------------------------------------------------------
-
 def _connect_support():
     conn = _connect()
     conn.execute("""
@@ -333,8 +294,6 @@ def _connect_support():
         )
     """)
     return conn
-
-
 def save_group_members(members):
     """Ghi đè toàn bộ danh bạ thành viên nhóm. members: list các (user_id, display_name)."""
     conn = _connect_support()
@@ -345,16 +304,12 @@ def save_group_members(members):
             members,
         )
     conn.close()
-
-
 def get_all_group_members():
     conn = _connect_support()
     cur = conn.execute("SELECT user_id, display_name FROM group_members")
     rows = cur.fetchall()
     conn.close()
     return rows
-
-
 def save_support_schedule_rows(rows):
     """Lưu (upsert) lịch hỗ trợ. rows: list dict {ngay, ten, ca}."""
     conn = _connect_support()
@@ -365,8 +320,6 @@ def save_support_schedule_rows(rows):
                 ON CONFLICT(ngay) DO UPDATE SET ten=excluded.ten, ca=excluded.ca
             """, r)
     conn.close()
-
-
 def ensure_default_schedule(default_rows):
     """Nếu bảng lịch hỗ trợ đang trống, nạp sẵn danh sách mặc định (default_rows)."""
     conn = _connect_support()
@@ -375,8 +328,6 @@ def ensure_default_schedule(default_rows):
     conn.close()
     if count == 0:
         save_support_schedule_rows(default_rows)
-
-
 def get_schedule_for_date(ngay):
     """Trả về (ten, ca) cho đúng ngày (YYYY-MM-DD), hoặc None nếu không có ai."""
     conn = _connect_support()
@@ -384,8 +335,6 @@ def get_schedule_for_date(ngay):
     row = cur.fetchone()
     conn.close()
     return row if row else None
-
-
 def da_nhac_chua(ngay, gio_nhac):
     """Kiểm tra đã gửi nhắc cho (ngay, gio_nhac) này chưa — tránh gửi trùng."""
     conn = _connect_support()
@@ -395,8 +344,6 @@ def da_nhac_chua(ngay, gio_nhac):
     row = cur.fetchone()
     conn.close()
     return row is not None
-
-
 def danh_dau_da_nhac(ngay, gio_nhac):
     conn = _connect_support()
     with conn:
@@ -405,12 +352,9 @@ def danh_dau_da_nhac(ngay, gio_nhac):
             (ngay, gio_nhac),
         )
     conn.close()
-
-
 # ---------------------------------------------------------------------------
 # BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN/FRESH/FMCG) - mới thêm
 # ---------------------------------------------------------------------------
-
 def _connect_phanline():
     conn = _connect()
     conn.execute("""
@@ -427,8 +371,6 @@ def _connect_phanline():
         )
     """)
     return conn
-
-
 def save_phan_line(ngay, data):
     """Lưu (ghi đè) bài phân line của 1 ngày. data là dict."""
     conn = _connect_phanline()
@@ -438,8 +380,6 @@ def save_phan_line(ngay, data):
             ON CONFLICT(ngay) DO UPDATE SET data_json=excluded.data_json
         """, (ngay, json.dumps(data, ensure_ascii=False)))
     conn.close()
-
-
 def get_phan_line(ngay):
     """Trả về dict bài phân line của ngày đó, hoặc None nếu chưa có."""
     conn = _connect_phanline()
@@ -447,8 +387,6 @@ def get_phan_line(ngay):
     row = cur.fetchone()
     conn.close()
     return json.loads(row[0]) if row else None
-
-
 def da_nhac_phanline(ngay, slot):
     conn = _connect_phanline()
     cur = conn.execute(
@@ -457,8 +395,6 @@ def da_nhac_phanline(ngay, slot):
     row = cur.fetchone()
     conn.close()
     return row is not None
-
-
 def danh_dau_da_nhac_phanline(ngay, slot):
     conn = _connect_phanline()
     with conn:
@@ -467,12 +403,9 @@ def danh_dau_da_nhac_phanline(ngay, slot):
             (ngay, slot),
         )
     conn.close()
-
-
 # ---------------------------------------------------------------------------
 # XOAY VÒNG PHÂN LINE TỰ ĐỘNG - mới thêm
 # ---------------------------------------------------------------------------
-
 def _connect_rotation():
     conn = _connect()
     conn.execute("""
@@ -488,16 +421,12 @@ def _connect_rotation():
         )
     """)
     return conn
-
-
 def get_rotation_index(candidates_key):
     conn = _connect_rotation()
     cur = conn.execute("SELECT next_index FROM rotation_state WHERE candidates_key = ?", (candidates_key,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else 0
-
-
 def advance_rotation_index(candidates_key, total):
     conn = _connect_rotation()
     with conn:
@@ -511,8 +440,6 @@ def advance_rotation_index(candidates_key, total):
         """, (candidates_key, new_idx))
     conn.close()
     return idx
-
-
 def save_ca_schedule(ngay, data):
     conn = _connect_rotation()
     with conn:
@@ -521,20 +448,15 @@ def save_ca_schedule(ngay, data):
             ON CONFLICT(ngay) DO UPDATE SET data_json=excluded.data_json
         """, (ngay, json.dumps(data, ensure_ascii=False)))
     conn.close()
-
-
 def get_ca_schedule(ngay):
     conn = _connect_rotation()
     cur = conn.execute("SELECT data_json FROM ca_schedule WHERE ngay = ?", (ngay,))
     row = cur.fetchone()
     conn.close()
     return json.loads(row[0]) if row else None
-
-
 # ---------------------------------------------------------------------------
 # ĐĂNG KÝ THÀNH VIÊN (thay thế API bị chặn "Get group member profile")
 # ---------------------------------------------------------------------------
-
 def _connect_dangky():
     conn = _connect()
     conn.execute("""
@@ -544,8 +466,6 @@ def _connect_dangky():
         )
     """)
     return conn
-
-
 def dang_ky_thanh_vien(ten_ngan, user_id):
     conn = _connect_dangky()
     with conn:
@@ -554,38 +474,29 @@ def dang_ky_thanh_vien(ten_ngan, user_id):
             ON CONFLICT(ten_ngan) DO UPDATE SET user_id=excluded.user_id
         """, (ten_ngan, user_id))
     conn.close()
-
-
 def get_user_id_da_dang_ky(ten_ngan):
     conn = _connect_dangky()
     cur = conn.execute("SELECT user_id FROM dang_ky_thanh_vien WHERE ten_ngan = ?", (ten_ngan,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
-
-
 def get_ten_ngan_tu_user_id(user_id):
     conn = _connect_dangky()
     cur = conn.execute("SELECT ten_ngan FROM dang_ky_thanh_vien WHERE user_id = ?", (user_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
-
-
 def get_all_dang_ky():
     conn = _connect_dangky()
     cur = conn.execute("SELECT ten_ngan, user_id FROM dang_ky_thanh_vien")
     rows = cur.fetchall()
     conn.close()
     return rows
-
-
 # ---------------------------------------------------------------------------
 # HỦY TỒN + MẤT MÁT KIỂM KÊ (FRESH) - mới thêm
 # Dùng cho: Doanh thu thủy hải sản, Công việc 1, Công việc 2, Phân tích số liệu.
 # Lưu theo (ngày, tên sản phẩm) — gửi trùng ngày sẽ tự cập nhật đè, không lặp.
 # ---------------------------------------------------------------------------
-
 def save_fresh_records(rows):
     """Lưu (hoặc cập nhật) danh sách bản ghi hủy tồn/MMKK theo (ngày, sản phẩm)."""
     conn = _connect()
@@ -606,8 +517,6 @@ def save_fresh_records(rows):
                     thanh_tien=excluded.thanh_tien
             """, r)
     conn.close()
-
-
 def get_fresh_distinct_dates():
     """Danh sách các ngày có dữ liệu FRESH, mới nhất trước."""
     conn = _connect()
@@ -615,8 +524,6 @@ def get_fresh_distinct_dates():
     dates = [row[0] for row in cur.fetchall()]
     conn.close()
     return dates
-
-
 def get_fresh_records_by_date(ngay):
     conn = _connect()
     cur = conn.execute("SELECT * FROM fresh_records WHERE ngay = ?", (ngay,))
@@ -624,8 +531,6 @@ def get_fresh_records_by_date(ngay):
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
-
-
 def get_fresh_records_range(ngay_tu, ngay_den):
     """Lấy tất cả bản ghi FRESH trong khoảng [ngay_tu, ngay_den] (bao gồm 2 đầu),
     dạng "YYYY-MM-DD"."""
@@ -638,14 +543,11 @@ def get_fresh_records_range(ngay_tu, ngay_den):
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
-
-
 # ---------------------------------------------------------------------------
 # TRẠNG THÁI LỆNH GẦN NHẤT (bot_state) - mới thêm
 # Dùng để bắt buộc thứ tự: phải gõ "hủy mmkk <ngày>" trước, có kết quả xong
 # mới được gõ "phân tích số liệu" (theo đúng ngày đó) trong CÙNG nhóm/chat.
 # ---------------------------------------------------------------------------
-
 def save_last_command(target_id, command, gio=None):
     """Lưu lệnh vừa thực hiện thành công (vd 'huy_mmkk:2026-08-24') cho 1 nơi
     (group_id hoặc user_id riêng)."""
@@ -659,11 +561,50 @@ def save_last_command(target_id, command, gio=None):
                 last_command_at=excluded.last_command_at
         """, (target_id, command, gio))
     conn.close()
-
-
 def get_last_command(target_id):
     conn = _connect()
     cur = conn.execute("SELECT last_command FROM bot_state WHERE target_id = ?", (target_id,))
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
+# ---------------------------------------------------------------------------
+# NHẬT KÝ TIN NHẮN NHÂN VIÊN (MỚI 08/09/2026)
+# Lưu lại từng tin nhắn nhân viên (đã ĐĂNG KÝ tên qua "DK <Tên>" hoặc tự học
+# qua tag bài phân line) gửi trong nhóm, theo ngày — dùng làm "báo cáo thực
+# tế" khi anh Quí nhờ bot NHẬN XÉT (so với mục tiêu lấy từ bài phân line,
+# xem storage.get_phan_line() -> data[ca]["muc_tieu"][user_id]). Mỗi tin
+# nhắn là 1 dòng riêng (không ghi đè), lưu vô thời hạn để sau này xem lại
+# xu hướng theo thời gian.
+# ---------------------------------------------------------------------------
+def _connect_nhatky():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS nhat_ky_nhan_vien (
+            ngay TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            gio TEXT,
+            noi_dung TEXT NOT NULL
+        )
+    """)
+    return conn
+def save_nhat_ky_nhan_vien(ngay, user_id, gio, noi_dung):
+    """Thêm 1 dòng nhật ký tin nhắn của 1 bạn nhân viên trong ngày (KHÔNG
+    ghi đè — mỗi tin nhắn là 1 dòng riêng)."""
+    conn = _connect_nhatky()
+    with conn:
+        conn.execute(
+            "INSERT INTO nhat_ky_nhan_vien (ngay, user_id, gio, noi_dung) VALUES (?, ?, ?, ?)",
+            (ngay, user_id, gio, noi_dung),
+        )
+    conn.close()
+def get_nhat_ky_nhan_vien(ngay, user_id):
+    """Trả về list [(gio, noi_dung), ...] theo đúng thứ tự thời gian đã gửi,
+    của 1 bạn nhân viên trong 1 ngày."""
+    conn = _connect_nhatky()
+    cur = conn.execute(
+        "SELECT gio, noi_dung FROM nhat_ky_nhan_vien WHERE ngay = ? AND user_id = ? ORDER BY rowid",
+        (ngay, user_id),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
