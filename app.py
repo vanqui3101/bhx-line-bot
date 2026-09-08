@@ -709,12 +709,21 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
         print(f"[PHANLINE-DEBUG] da gui xong slot={slot}")
     except Exception:
         traceback.print_exc()
-# QUAN TRỌNG: truyền timezone dạng CHUỖI ("Asia/Ho_Chi_Minh") cho
-# BackgroundScheduler từng bị chạy SAI theo giờ UTC (log thực tế cho thấy
-# lệch đúng 7 tiếng - vd job hẹn 8h sáng VN lại chạy lúc 8h UTC = 15h VN).
-# Sửa: truyền hẳn 1 object tzinfo (ZoneInfo) thay vì chuỗi, kèm phương án dự
-# phòng tự tính lệch UTC+7 nếu máy chủ thiếu dữ liệu múi giờ (tzdata), để
-# chắc chắn không bao giờ bị chạy nhầm giờ UTC nữa.
+# QUAN TRỌNG — LỖI GIỜ UTC (đã bị lặp lại 2 lần, 07/09 và 08/09/2026):
+# Chỉ truyền timezone cho BackgroundScheduler(timezone=...) KHÔNG đủ — mỗi
+# CronTrigger(hour=..., minute=...) được TẠO SẴN rồi mới add_job() như bên
+# dưới sẽ TỰ LẤY GIỜ HỆ MÁY CHỦ (UTC trên Railway) làm giờ tính, không tự
+# động ăn theo timezone đã set cho scheduler (đây là hành vi đã được chính
+# nhà phát triển thư viện APScheduler xác nhận — xem issue #346 trên GitHub
+# repo agronholm/apscheduler: cơ chế "ăn theo giờ scheduler" chỉ áp dụng khi
+# khai lịch qua dạng chuỗi rút gọn add_job(func, 'cron', hour=8), KHÔNG áp
+# dụng khi truyền thẳng 1 object CronTrigger đã tạo sẵn như cách file này
+# đang viết). Kết quả thực tế đã kiểm chứng qua log Railway: job hẹn 8h sáng
+# VN chạy lúc 8h UTC = 15h VN, job hẹn 11h chạy lúc 18h VN — lệch đúng 7
+# tiếng mỗi lần.
+# SỬA TẬN GỐC: gắn thẳng timezone=_TZ_VN_SCHEDULER vào TỪNG CronTrigger bên
+# dưới (không chỉ set 1 chỗ chung ở BackgroundScheduler nữa), để không còn
+# phụ thuộc vào cơ chế "ăn theo mặc định" nữa.
 try:
     from zoneinfo import ZoneInfo as _ZoneInfoLichChay
     _TZ_VN_SCHEDULER = _ZoneInfoLichChay("Asia/Ho_Chi_Minh")
@@ -722,26 +731,26 @@ except Exception:
     from datetime import timezone as _TzFixed, timedelta as _TdFixed
     _TZ_VN_SCHEDULER = _TzFixed(_TdFixed(hours=7))
 scheduler = BackgroundScheduler(timezone=_TZ_VN_SCHEDULER)
-scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0))
-scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0))
+scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0, timezone=_TZ_VN_SCHEDULER))
+scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0, timezone=_TZ_VN_SCHEDULER))
 # Ca sáng: THU NGÂN + FRESH -> 8h, 11h
 scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=8, minute=0))
+                   CronTrigger(hour=8, minute=0, timezone=_TZ_VN_SCHEDULER))
 scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=11, minute=0))
+                   CronTrigger(hour=11, minute=0, timezone=_TZ_VN_SCHEDULER))
 # Ca chiều: THU NGÂN + FRESH -> 15h, 17h, 19h
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=15, minute=0))
+                   CronTrigger(hour=15, minute=0, timezone=_TZ_VN_SCHEDULER))
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=17, minute=0))
+                   CronTrigger(hour=17, minute=0, timezone=_TZ_VN_SCHEDULER))
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=19, minute=0))
+                   CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
 # FMCG sáng -> 10h (dùng đúng nội dung anh viết trong bài)
 scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h", None),
-                   CronTrigger(hour=10, minute=0))
+                   CronTrigger(hour=10, minute=0, timezone=_TZ_VN_SCHEDULER))
 # FMCG chiều -> 19h (nội dung cố định)
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
-                   CronTrigger(hour=19, minute=0))
+                   CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
 # ---- LỊCH TEST KHẨN CẤP (tạm thời, để debug ngay hôm nay) ----
 # Bắt đầu 15h40, lặp lại mỗi 35 phút — dùng đúng nội dung/dữ liệu ca chiều
 # THU NGÂN+FRESH thật, chỉ khác là dùng slot-key riêng mỗi lần nên không bị
@@ -794,6 +803,17 @@ except Exception:
 scheduler.add_job(_test_tao_phan_line_224, DateTrigger(run_date=_gio_tao_bai))
 scheduler.add_job(_test_nhac_phan_line_224, DateTrigger(run_date=_gio_nhac_thu))
 scheduler.start()
+# XÁC NHẬN GIỜ SCHEDULER LÚC KHỞI ĐỘNG (để đối chiếu ngay trên log Railway,
+# không cần đợi tới đúng khung giờ mới biết đúng/sai) — in giờ hệ thống
+# (thường là UTC trên Railway) VÀ giờ VN mà từng CronTrigger đang thực sự
+# dùng để tính lịch, phải LỆCH NHAU đúng 7 tiếng nếu máy chủ chạy UTC.
+try:
+    _gio_he_thong_luc_khoi_dong = _dt.now()
+    _gio_vn_luc_khoi_dong = _dt.now(_TZ_VN_SCHEDULER)
+    print(f"[SCHEDULER-CHECK] gio he thong (server) = {_gio_he_thong_luc_khoi_dong.strftime('%Y-%m-%d %H:%M:%S')} "
+          f"| gio VN cac CronTrigger dang dung = {_gio_vn_luc_khoi_dong.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+except Exception:
+    traceback.print_exc()
 # ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
