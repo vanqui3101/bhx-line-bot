@@ -1,12 +1,10 @@
 """
 fresh_report.py - Xử lý 4 tính năng dùng chung 1 file Excel "hủy tồn + MMKK"
 (riêng biệt, khác hẳn 3 file DT/MTKM/TD cũ):
-
 1. Doanh thu thủy hải sản — báo cáo riêng ngành Thủy hải sản.
 2. Công việc 1 — chi tiết Hủy tồn + MMKK từng sản phẩm (đúng 1 ngày).
 3. Công việc 2 — tổng Hủy tồn + MMKK theo 4 nhóm lớn + Trứng (nhiều ngày).
 4. Phân tích số liệu — phân tích trực tiếp dựa trên đúng ngày được hỏi.
-
 Dữ liệu đọc từ storage.get_fresh_records_by_date() / get_fresh_records_range(),
 đã được lưu qua excel_reader.read_fresh_rows() khi anh gửi file cho bot.
 """
@@ -14,7 +12,6 @@ import re
 import calendar
 import unicodedata
 from datetime import datetime, date, timedelta
-
 import storage
 from excel_reader import FRESH_NHOM_LON
 from flex_builder import (
@@ -22,35 +19,23 @@ from flex_builder import (
     build_fresh_detail_flex_message,
     build_fresh_group_flex_message,
 )
-
 # Sản phẩm loại trừ khỏi bảng Hủy tồn — số liệu bất thường, không phải hao hụt
 # bán lẻ thường ngày (thịt heo nửa mảnh nhập nguyên con, không cùng bản chất
 # với hủy tồn rau củ/thịt/thủy hải sản lẻ).
 SAN_PHAM_LOAI_TRU_HUY_TON = {"HEO NỬA MẢNH"}
-
 NHOM_LON_THU_TU = ["Rau củ", "Trái cây", "Thịt", "Thủy hải sản", "Trứng"]
-
-
 def _today_vn():
     try:
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
     except Exception:
         return datetime.now().date()
-
-
 def _fmt_dm(d):
     return d.strftime("%d/%m")
-
-
 def _fmt_dmy(d):
     return d.strftime("%d/%m/%Y")
-
-
 def _ngay_str(d):
     return d.strftime("%Y-%m-%d")
-
-
 def _bo_dau(text):
     """Bỏ dấu tiếng Việt (và hạ chữ thường) để nhận diện câu lệnh không phụ
     thuộc cách gõ dấu, vd "hôm qua"/"hom qua", "hủy"/"huỷ" đều so khớp được."""
@@ -59,12 +44,9 @@ def _bo_dau(text):
     khong_dau = "".join(c for c in nfkd if not unicodedata.combining(c))
     khong_dau = khong_dau.replace("đ", "d").replace("Đ", "D")
     return khong_dau.lower()
-
-
 # ---------------------------------------------------------------------------
 # Nhận diện ngày/khoảng ngày từ câu lệnh tự do (so khớp trên bản KHÔNG DẤU)
 # ---------------------------------------------------------------------------
-
 _SO_NGAY_TRUOC_RE = re.compile(r"(\d+)\s*ngay\s*truoc")
 # Ngày đầu có thể chỉ ghi số ngày (không kèm tháng), mượn tháng/năm từ ngày sau
 # (vd "từ ngày 6 đến 10/8" nghĩa là 6/8 -> 10/8).
@@ -72,8 +54,15 @@ _KHOANG_NGAY_RE = re.compile(
     r"tu\s*ngay\s*(\d{1,2})(?:[/\-](\d{1,2})(?:[/\-](\d{2,4}))?)?"
     r"\s*(?:den|->|-)\s*(?:ngay\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?"
 )
-
-
+# So sánh 2 ngày CỤ THỂ (không phải khoảng ngày liên tục) — vd "so sánh ngày
+# 6/9 và ngày 7/9", "so sánh giữa 6 với 7/9". Ngày đầu có thể chỉ ghi số ngày,
+# mượn tháng/năm từ ngày sau (giống _KHOANG_NGAY_RE). (Mới 08/09/2026 — dùng
+# cho lệnh "hủy mmkk": khi anh hỏi so sánh 2 ngày cụ thể, trả về 2 thẻ Flex
+# riêng từng ngày thay vì gộp thành 1 khoảng.)
+_SO_SANH_2_NGAY_RE = re.compile(
+    r"so\s*sanh.*?(?:ngay\s*)?(\d{1,2})(?:[/\-](\d{1,2})(?:[/\-](\d{2,4}))?)?"
+    r"\s*(?:va|voi|,)\s*(?:ngay\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?"
+)
 def parse_date_request(text, today=None):
     """Phân tích câu lệnh tự do, trả về (mode, ngay_tu, ngay_den):
     - mode == "single": 1 ngày cụ thể (dùng cho Công việc 1 / Phân tích)
@@ -82,7 +71,6 @@ def parse_date_request(text, today=None):
     if today is None:
         today = _today_vn()
     t = _bo_dau(text)
-
     m = _KHOANG_NGAY_RE.search(t)
     if m:
         d1, mo1, y1, d2, mo2, y2 = m.groups()
@@ -103,37 +91,52 @@ def parse_date_request(text, today=None):
         if ngay_tu > ngay_den:
             ngay_tu, ngay_den = ngay_den, ngay_tu
         return "range", ngay_tu, ngay_den
-
     m = _SO_NGAY_TRUOC_RE.search(t)
     if m:
         n = int(m.group(1))
         ngay_tu = today - timedelta(days=n)
         ngay_den = today - timedelta(days=1)
         return "range", ngay_tu, ngay_den
-
     if "hom nay" in t:
         return "single", today, today
-
     # Mặc định (kể cả khi câu chỉ có "hủy mmkk" không kèm ngày): hôm qua
     y = today - timedelta(days=1)
     return "single", y, y
-
-
+def parse_so_sanh_2_ngay(text, today=None):
+    """Nhận diện câu "so sánh ngày X và/với ngày Y" (2 NGÀY CỤ THỂ, khác với
+    "từ ngày X đến ngày Y" là một khoảng liên tục). Trả về:
+    (True, ngay1, ngay2) nếu nhận diện được, hoặc (False, None, None)."""
+    if today is None:
+        today = _today_vn()
+    t = _bo_dau(text)
+    m = _SO_SANH_2_NGAY_RE.search(t)
+    if not m:
+        return False, None, None
+    d1, mo1, y1, d2, mo2, y2 = m.groups()
+    mo1 = mo1 or mo2
+    y1 = y1 or y2 or today.year
+    y2 = y2 or today.year
+    y1, y2 = int(y1), int(y2)
+    if y1 < 100:
+        y1 += 2000
+    if y2 < 100:
+        y2 += 2000
+    try:
+        ngay1 = date(y1, int(mo1), int(d1))
+        ngay2 = date(y2, int(mo2), int(d2))
+    except ValueError:
+        return False, None, None
+    return True, ngay1, ngay2
 def wants_comparison(text):
     """Câu có yêu cầu so sánh với ngày hôm qua/hôm trước không (chỉ dùng cho
     lệnh Phân tích số liệu — mặc định KHÔNG so sánh, trừ khi anh nói rõ)."""
     t = _bo_dau(text)
     return "so sanh" in t and ("hom qua" in t or "hom truoc" in t)
-
-
 # ---------------------------------------------------------------------------
 # Helper tính kg / đơn vị gốc cho 1 dòng fresh_records
 # ---------------------------------------------------------------------------
-
 def _kg(row, field):
     return (row.get(field) or 0) * (row.get("dvt") or 0)
-
-
 def _qty_text(row, field):
     """Trả về (giá_trị_so_sánh, chuỗi hiển thị) theo đúng đơn vị gốc sản phẩm."""
     raw = row.get(field) or 0
@@ -144,23 +147,17 @@ def _qty_text(row, field):
     if val == int(val):
         val = int(val)
     return raw, f"{val} {row.get('don_vi')}"
-
-
 def _is_noise(sortval, don_vi):
     """Bỏ dòng gần như 0 do sai số làm tròn (chỉ áp dụng cho hàng cân kg)."""
     return don_vi == "kg" and sortval <= 0.005
-
-
 # ---------------------------------------------------------------------------
 # CÔNG VIỆC 1 — chi tiết Hủy tồn + MMKK từng sản phẩm (1 ngày)
 # ---------------------------------------------------------------------------
-
 def build_cong_viec_1(ten_st, ngay):
     """Trả về flex bubble (dict) hoặc None nếu chưa có dữ liệu ngày này."""
     rows = storage.get_fresh_records_by_date(_ngay_str(ngay))
     if not rows:
         return None
-
     def collect(field, loai_tru_heo):
         by_nganh = {}
         for r in rows:
@@ -179,28 +176,21 @@ def build_cong_viec_1(ten_st, ngay):
             grouped.append((nganh_hang, items))
             total += len(items)
         return grouped, total
-
     huy_groups, so_huy = collect("sl_huy", loai_tru_heo=True)
     mmkk_groups, so_mmkk = collect("sl_mmkk", loai_tru_heo=False)
-
     return build_fresh_detail_flex_message(
         ten_st, _fmt_dmy(ngay), huy_groups, mmkk_groups, so_huy, so_mmkk
     )
-
-
 # ---------------------------------------------------------------------------
 # CÔNG VIỆC 2 — tổng Hủy tồn + MMKK theo nhóm lớn (nhiều ngày)
 # ---------------------------------------------------------------------------
-
 def build_cong_viec_2(ten_st, ngay_tu, ngay_den):
     rows = storage.get_fresh_records_range(_ngay_str(ngay_tu), _ngay_str(ngay_den))
     if not rows:
         return None
-
     huy_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
     mmkk_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
     huy_don_vi = {"Rau củ": "kg", "Trái cây": "kg", "Thịt": "kg", "Thủy hải sản": "kg", "Trứng": "hộp"}
-
     for r in rows:
         nhom = FRESH_NHOM_LON.get(r["nganh_hang"])
         if not nhom:
@@ -214,7 +204,6 @@ def build_cong_viec_2(ten_st, ngay_tu, ngay_den):
             if not loai_tru:
                 huy_by_nhom[nhom] += _kg(r, "sl_huy")
             mmkk_by_nhom[nhom] += _kg(r, "sl_mmkk")
-
     nhom_rows = []
     for nhom in NHOM_LON_THU_TU:
         dv = huy_don_vi[nhom]
@@ -226,15 +215,11 @@ def build_cong_viec_2(ten_st, ngay_tu, ngay_den):
         else:
             huy_text, mmkk_text, tong_text = f"{huy_val:g} hộp", f"{mmkk_val:g} hộp", f"{tong_val:g} hộp"
         nhom_rows.append((nhom, huy_text, mmkk_text, tong_text))
-
     so_ngay = (ngay_den - ngay_tu).days + 1
     return build_fresh_group_flex_message(ten_st, _fmt_dm(ngay_tu), _fmt_dm(ngay_den), so_ngay, nhom_rows)
-
-
 # ---------------------------------------------------------------------------
 # DOANH THU THỦY HẢI SẢN
 # ---------------------------------------------------------------------------
-
 def build_doanh_thu_thuy_hai_san(ten_st):
     """Dùng TOÀN BỘ dữ liệu FRESH đã lưu (từ ngày sớm nhất đến ngày mới nhất)."""
     dates = storage.get_fresh_distinct_dates()
@@ -243,7 +228,6 @@ def build_doanh_thu_thuy_hai_san(ten_st):
     ngay_tu = datetime.strptime(min(dates), "%Y-%m-%d").date()
     ngay_den = datetime.strptime(max(dates), "%Y-%m-%d").date()
     rows = storage.get_fresh_records_range(_ngay_str(ngay_tu), _ngay_str(ngay_den))
-
     by_sp = {}
     for r in rows:
         if r["nganh_hang"] not in ("Thủy Hải Sản Tập Trung", "Thủy Hải Sản Nhập Khẩu"):
@@ -254,10 +238,8 @@ def build_doanh_thu_thuy_hai_san(ten_st):
         d["huy"] += _kg(r, "sl_huy")
         d["mmkk"] += _kg(r, "sl_mmkk")
         d["tien"] += r.get("thanh_tien") or 0
-
     if not by_sp:
         return None
-
     items = []
     doanh_thu_tong = 0.0
     gia_tri_huy = 0.0
@@ -267,23 +249,18 @@ def build_doanh_thu_thuy_hai_san(ten_st):
         doanh_thu_tong += d["tien"]
         gia_binh_quan = (d["tien"] / d["xuat"]) if d["xuat"] > 0 else 0
         gia_tri_huy += gia_binh_quan * (d["huy"] + d["mmkk"])
-
     so_ngay_da_qua = (ngay_den - ngay_tu).days + 1
     so_ngay_ca_thang = calendar.monthrange(ngay_den.year, ngay_den.month)[1]
     he_so = so_ngay_ca_thang / so_ngay_da_qua if so_ngay_da_qua else 1.0
     du_kien_cuoi_thang = doanh_thu_tong * he_so
-
     return build_seafood_flex_message(
         ten_st, _fmt_dmy(ngay_tu), _fmt_dmy(ngay_den), so_ngay_da_qua,
         items, doanh_thu_tong, gia_tri_huy, du_kien_cuoi_thang,
     )
-
-
 # ---------------------------------------------------------------------------
 # PHÂN TÍCH SỐ LIỆU — mặc định chỉ phân tích ĐÚNG ngày được hỏi, không tự so
 # sánh với ngày hôm qua/trước đó trừ khi được yêu cầu rõ.
 # ---------------------------------------------------------------------------
-
 def _tong_theo_nhom(rows):
     huy = {n: 0.0 for n in NHOM_LON_THU_TU}
     mmkk = {n: 0.0 for n in NHOM_LON_THU_TU}
@@ -301,22 +278,70 @@ def _tong_theo_nhom(rows):
                 huy[nhom] += _kg(r, "sl_huy")
             mmkk[nhom] += _kg(r, "sl_mmkk")
     return huy, mmkk
-
-
+def build_so_sanh_2_ngay(ngay_a, ngay_b):
+    """So sánh Hủy tồn + MMKK giữa 2 NGÀY CỤ THỂ bất kỳ (không nhất thiết
+    liền kề). Trả về CHUỖI TEXT phân tích tự nhiên (giống văn phong lệnh
+    "phân tích số liệu" — không phải bảng số liệu thô đặt cạnh nhau), hoặc
+    None nếu CẢ 2 ngày đều chưa có dữ liệu.
+    (Mới 08/09/2026 — trước đó "so sánh" trả về 2 thẻ card riêng từng ngày,
+    nhưng anh Quí phản hồi muốn nhận câu trả lời phân tích tự nhiên như đang
+    trò chuyện, không cần xem 2 bảng số liệu thô đặt cạnh nhau.)"""
+    rows_a = storage.get_fresh_records_by_date(_ngay_str(ngay_a))
+    rows_b = storage.get_fresh_records_by_date(_ngay_str(ngay_b))
+    if not rows_a and not rows_b:
+        return None
+    huy_a, mmkk_a = _tong_theo_nhom(rows_a)
+    huy_b, mmkk_b = _tong_theo_nhom(rows_b)
+    tong_a = {n: round(huy_a[n] + mmkk_a[n], 2) for n in NHOM_LON_THU_TU}
+    tong_b = {n: round(huy_b[n] + mmkk_b[n], 2) for n in NHOM_LON_THU_TU}
+    lines = [f"SO SÁNH HỦY TỒN + MMKK — {_fmt_dmy(ngay_a)} so với {_fmt_dmy(ngay_b)}", ""]
+    if not rows_a:
+        lines.append(f"(Chưa có dữ liệu ngày {_fmt_dmy(ngay_a)}, chỉ có số của {_fmt_dmy(ngay_b)}.)")
+    if not rows_b:
+        lines.append(f"(Chưa có dữ liệu ngày {_fmt_dmy(ngay_b)}, chỉ có số của {_fmt_dmy(ngay_a)}.)")
+    for n in NHOM_LON_THU_TU:
+        dv = "hộp" if n == "Trứng" else "kg"
+        delta = round(tong_b[n] - tong_a[n], 2)
+        dau = "+" if delta >= 0 else ""
+        lines.append(f"{n}: {tong_a[n]:.2f} {dv} -> {tong_b[n]:.2f} {dv} ({dau}{delta:.2f} {dv})")
+    # Nhóm biến động rõ nhất (theo kg, không tính Trứng do khác đơn vị).
+    bien_dong = {n: abs(tong_b[n] - tong_a[n]) for n in NHOM_LON_THU_TU if n != "Trứng"}
+    nhom_max = max(bien_dong, key=bien_dong.get) if bien_dong else None
+    lines.append("")
+    if nhom_max and bien_dong[nhom_max] > 0:
+        huong = "tăng" if tong_b[nhom_max] > tong_a[nhom_max] else "giảm"
+        lines.append(f"Biến động rõ nhất: {nhom_max} {huong} {bien_dong[nhom_max]:.2f} kg giữa 2 ngày.")
+    else:
+        lines.append("Không có biến động đáng kể giữa 2 ngày.")
+    # Sản phẩm có MMKK biến động (tăng/giảm) nhiều nhất giữa 2 ngày — chỉ ra
+    # nguyên nhân cụ thể, giống văn phong lệnh "phân tích số liệu".
+    by_sp_a = {r["ten_sp"]: r for r in rows_a}
+    by_sp_b = {r["ten_sp"]: r for r in rows_b}
+    sp_delta_max = None
+    sp_delta_val = 0
+    for ten_sp in set(by_sp_a) | set(by_sp_b):
+        ra, rb = by_sp_a.get(ten_sp), by_sp_b.get(ten_sp)
+        val_a = _kg(ra, "sl_mmkk") if ra and ra.get("don_vi") == "kg" else ((ra.get("sl_mmkk") or 0) if ra else 0)
+        val_b = _kg(rb, "sl_mmkk") if rb and rb.get("don_vi") == "kg" else ((rb.get("sl_mmkk") or 0) if rb else 0)
+        d = abs(val_b - val_a)
+        if d > sp_delta_val:
+            sp_delta_val = d
+            sp_delta_max = (ten_sp, val_a, val_b)
+    if sp_delta_max and sp_delta_val > 0.01:
+        ten_sp, va, vb = sp_delta_max
+        lines.append(f"Sản phẩm biến động MMKK nhiều nhất: {ten_sp} ({va:.2f} -> {vb:.2f}).")
+    return "\n".join(lines)
 def build_phan_tich(ngay, so_sanh_voi_hom_qua=False):
     """Trả về chuỗi text phân tích, hoặc None nếu chưa có dữ liệu ngày này."""
     rows = storage.get_fresh_records_by_date(_ngay_str(ngay))
     if not rows:
         return None
-
     huy, mmkk = _tong_theo_nhom(rows)
     tong = {n: round(huy[n] + mmkk[n], 2) for n in NHOM_LON_THU_TU}
-
     # Nhóm có vấn đề lớn nhất (rau củ/trái cây/thịt/thủy hải sản theo kg;
     # trứng không cộng chung do khác đơn vị).
     nhom_kg = {n: tong[n] for n in NHOM_LON_THU_TU if n != "Trứng"}
     nhom_max = max(nhom_kg, key=nhom_kg.get) if nhom_kg else None
-
     # Sản phẩm MMKK lớn nhất trong ngày -> chỉ đúng nguyên nhân cụ thể
     sp_max = None
     sp_max_val = 0
@@ -326,13 +351,11 @@ def build_phan_tich(ngay, so_sanh_voi_hom_qua=False):
         if val > sp_max_val:
             sp_max_val = val
             sp_max = r
-
     lines = [f"PHÂN TÍCH HỦY + MMKK — {_fmt_dmy(ngay)}", ""]
     for n in NHOM_LON_THU_TU:
         dv = "hộp" if n == "Trứng" else "kg"
         lines.append(f"{n}: hủy {huy[n]:.2f} {dv}, MMKK {mmkk[n]:.2f} {dv}, tổng {tong[n]:.2f} {dv}")
     lines.append("")
-
     if nhom_max and nhom_kg[nhom_max] > 0:
         lines.append(f"Nhóm đáng chú ý nhất: {nhom_max} ({nhom_kg[nhom_max]:.2f} kg).")
     if sp_max is not None and sp_max_val > 0:
@@ -343,7 +366,6 @@ def build_phan_tich(ngay, so_sanh_voi_hom_qua=False):
         lines.append(f"Nguyên nhân cụ thể: {sp_max['ten_sp']} một mình chiếm {val_text} MMKK/hủy{note}. "
                       f"Đây là vấn đề ở đúng 1 sản phẩm, không phải xu hướng chung — cần kiểm tra lại: cân sai lúc nhập, "
                       f"nhập sai số liệu, hay hao hụt/mất hàng thật.")
-
     if so_sanh_voi_hom_qua:
         ngay_truoc = ngay - timedelta(days=1)
         rows_truoc = storage.get_fresh_records_by_date(_ngay_str(ngay_truoc))
@@ -360,5 +382,4 @@ def build_phan_tich(ngay, so_sanh_voi_hom_qua=False):
         else:
             lines.append("")
             lines.append(f"(Chưa có dữ liệu ngày {_fmt_dmy(ngay_truoc)} để so sánh.)")
-
     return "\n".join(lines)
