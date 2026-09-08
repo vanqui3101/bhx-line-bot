@@ -179,29 +179,53 @@ def _context_thuong():
     )
 
 
+FRESH_SO_NGAY_TOI_DA_TRONG_CONTEXT = 45  # tránh context phình quá to nếu data lâu ngày
+
+
 def _context_fresh():
+    """QUAN TRỌNG: trước đây hàm này chỉ đưa ra 1 con số TỔNG CỘNG DỒN cả
+    giai đoạn -> khiến AI trả lời tự do KHÔNG tách được số liệu từng ngày
+    riêng lẻ (dù lệnh cố định "hủy mmkk <ngày>" vẫn tách đúng, vì lệnh đó
+    đọc thẳng từ storage.get_fresh_records_by_date(), không qua hàm này).
+    Đã sửa: liệt kê số liệu THEO TỪNG NGÀY (dùng đúng hàm
+    get_fresh_records_by_date() cho mỗi ngày — hàm đã được lệnh "hủy mmkk"
+    dùng và test đúng từ trước), để AI trả lời tự do cũng trả lời được câu
+    hỏi về đúng 1 ngày cụ thể, không chỉ số cộng dồn."""
     dates = storage.get_fresh_distinct_dates()
     if not dates:
         return "Chưa có dữ liệu Hủy tồn + MMKK (Fresh) nào được lưu."
-    ngay_den, ngay_tu = dates[0], dates[-1]
-    rows = storage.get_fresh_records_range(ngay_tu, ngay_den)
-    theo_nhom = defaultdict(lambda: {"nhap": 0.0, "xuat": 0.0, "huy": 0.0, "mmkk": 0.0})
-    for r in rows:
-        nh = r.get("nganh_hang") or "Khác"
-        theo_nhom[nh]["nhap"] += r.get("sl_nhap") or 0
-        theo_nhom[nh]["xuat"] += r.get("sl_xuat") or 0
-        theo_nhom[nh]["huy"] += r.get("sl_huy") or 0
-        theo_nhom[nh]["mmkk"] += r.get("sl_mmkk") or 0
-    dong = [f"Dữ liệu Hủy tồn + MMKK đã lưu, từ {ngay_tu} đến {ngay_den} (tổng theo ngành hàng):"]
-    for nh, s in sorted(theo_nhom.items()):
-        dong.append(
-            f"  {nh}: nhập {s['nhap']:.1f}, xuất {s['xuat']:.1f}, "
-            f"hủy tồn {s['huy']:.1f}, mất mát kiểm kê {s['mmkk']:.1f}"
+    ngay_sorted = sorted(dates)
+    bi_cat_bot = len(ngay_sorted) > FRESH_SO_NGAY_TOI_DA_TRONG_CONTEXT
+    ngay_hien = ngay_sorted[-FRESH_SO_NGAY_TOI_DA_TRONG_CONTEXT:] if bi_cat_bot else ngay_sorted
+    dong = [
+        f"Dữ liệu Hủy tồn + MMKK đã lưu cho các ngày: {ngay_sorted[0]} đến {ngay_sorted[-1]}"
+        + (f" (chỉ liệt kê chi tiết {FRESH_SO_NGAY_TOI_DA_TRONG_CONTEXT} ngày gần nhất bên dưới)" if bi_cat_bot else "")
+        + ". Số liệu TỪNG NGÀY (đơn vị: kg cho Rau củ/Trái cây/Thịt/Thủy hải sản, hộp cho Trứng):"
+    ]
+    tong_theo_nhom = defaultdict(lambda: {"huy": 0.0, "mmkk": 0.0})
+    for ngay_str in ngay_hien:
+        rows = storage.get_fresh_records_by_date(ngay_str)
+        theo_nhom = defaultdict(lambda: {"huy": 0.0, "mmkk": 0.0})
+        for r in rows:
+            nh = r.get("nganh_hang") or "Khác"
+            huy_val = r.get("sl_huy") or 0
+            mmkk_val = r.get("sl_mmkk") or 0
+            theo_nhom[nh]["huy"] += huy_val
+            theo_nhom[nh]["mmkk"] += mmkk_val
+            tong_theo_nhom[nh]["huy"] += huy_val
+            tong_theo_nhom[nh]["mmkk"] += mmkk_val
+        chi_tiet = "; ".join(
+            f"{nh}: hủy {s['huy']:.1f}, mmkk {s['mmkk']:.1f}"
+            for nh, s in sorted(theo_nhom.items())
         )
+        dong.append(f"  Ngày {ngay_str}: {chi_tiet if chi_tiet else '(không có dữ liệu)'}")
+    dong.append(f"Tổng cộng dồn {ngay_sorted[0]} đến {ngay_sorted[-1]} (theo ngành hàng):")
+    for nh, s in sorted(tong_theo_nhom.items()):
+        dong.append(f"  {nh}: hủy tồn {s['huy']:.1f}, mất mát kiểm kê {s['mmkk']:.1f}")
     dong.append(
-        "(Đây là số tổng cộng dồn cả giai đoạn. Muốn xem chi tiết đúng 1 ngày "
-        "hoặc phân tích nguyên nhân, anh tag bot + gõ \"hủy mmkk <ngày>\" hoặc "
-        "\"phân tích số liệu\" như bình thường.)"
+        "(Muốn xem bảng chi tiết từng sản phẩm đúng 1 ngày, hoặc phân tích "
+        "nguyên nhân, anh tag bot + gõ \"hủy mmkk <ngày>\" hoặc \"phân tích số "
+        "liệu\" như bình thường.)"
     )
     return "\n".join(dong)
 
