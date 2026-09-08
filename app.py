@@ -14,9 +14,13 @@ Luồng hoạt động (MỚI):
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
-- GROUP_ID                   (không còn dùng để định tuyến tin nhắn — bot luôn
-                               trả lời đúng nơi gõ lệnh, giữ biến này chỉ để
-                               tương thích ngược nếu cần dùng lại sau này)
+- GROUP_ID                   (không dùng để định tuyến tin nhắn TRẢ LỜI theo
+                               lệnh — bot luôn trả lời đúng nơi gõ lệnh. CHỈ
+                               dùng cho các tin TỰ ĐỘNG gửi/nhắc (phân line,
+                               lịch hỗ trợ...). Có thể để 1 ID hoặc NHIỀU ID
+                               cách nhau bằng dấu phẩy để bot tự động gửi/
+                               nhắc vào TẤT CẢ các nhóm đó cùng lúc, VD:
+                               "Cxxxx1,Cxxxx2")
 - ANTHROPIC_API_KEY          (bắt buộc cho tính năng TROLY trả lời tự do VÀ
                                tính năng đọc ảnh, lấy trong Anthropic Console
                                -> API Keys)
@@ -71,6 +75,11 @@ import ai_assistant
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
+# Hỗ trợ NHIỀU nhóm cùng lúc cho các tính năng tự động gửi/nhắc (phân line,
+# lịch hỗ trợ...): trên Railway, biến GROUP_ID có thể để 1 ID (như cũ) hoặc
+# nhiều ID cách nhau bằng dấu phẩy, VD: "Cxxxx1,Cxxxx2". Mọi nơi tự động gửi
+# tin (không phải trả lời theo lệnh) sẽ gửi tới TẤT CẢ nhóm trong danh sách.
+GROUP_IDS = [g.strip() for g in GROUP_ID.split(",") if g.strip()]
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 # Lịch hỗ trợ siêu thị khác mặc định (nạp sẵn nếu chưa có file nào được gửi lên).
 # Anh có thể gửi file Excel mới (cột Ngày | Tên | Ca làm) bất cứ lúc nào để thay lịch này.
@@ -288,7 +297,7 @@ def send_support_reminder(gio_nhac):
     """Kiểm tra lịch hỗ trợ của NGÀY MAI (nhắc trước 1 ngày, tối hôm trước),
     nếu có người thì tag nhắc vào nhóm.
     gio_nhac: '20h' hoặc '21h' — chỉ để tránh gửi trùng trong cùng khung giờ."""
-    if not GROUP_ID:
+    if not GROUP_IDS:
         return
     try:
         from zoneinfo import ZoneInfo
@@ -305,14 +314,14 @@ def send_support_reminder(gio_nhac):
     if not row:
         return
     ten, ca = row
-    refresh_group_members(GROUP_ID)
     user_id, display_name = _find_user_id_by_name(ten)
     if not user_id:
         print(f"Khong tim thay '{ten}' trong danh ba nhom de tag.")
         return
     try:
         ngay_hien_thi = ngay_mai.strftime("%d/%m")
-        _push_mention_message(GROUP_ID, display_name, user_id, ngay_hien_thi, ca)
+        for gid in GROUP_IDS:
+            _push_mention_message(gid, display_name, user_id, ngay_hien_thi, ca)
         storage.danh_dau_da_nhac(log_key, gio_nhac)
     except Exception:
         traceback.print_exc()
@@ -327,7 +336,7 @@ def send_support_reminder(gio_nhac):
 # đã xác định xong nguyên nhân.
 # ---------------------------------------------------------------------------
 def _test_push_tag(mode, ten_ngan=None, direct_user_id=None):
-    if not GROUP_ID:
+    if not GROUP_IDS:
         print("[TEST-TAG-DEBUG] khong co GROUP_ID")
         return
     if mode == "all":
@@ -347,21 +356,22 @@ def _test_push_tag(mode, ten_ngan=None, direct_user_id=None):
             return
         text = "{u1} — test tag 1 người"
         substitution = {"u1": {"type": "mention", "mentionee": {"type": "user", "userId": user_id}}}
-    body = {
-        "to": GROUP_ID,
-        "messages": [{"type": "textV2", "text": text, "substitution": substitution}],
-    }
-    resp = requests.post(
-        "https://api.line.me/v2/bot/message/push",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
-        },
-        json=body,
-        timeout=15,
-    )
-    print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} direct_user_id={direct_user_id} "
-          f"-> status={resp.status_code} body={resp.text}")
+    for gid in GROUP_IDS:
+        body = {
+            "to": gid,
+            "messages": [{"type": "textV2", "text": text, "substitution": substitution}],
+        }
+        resp = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}",
+            },
+            json=body,
+            timeout=15,
+        )
+        print(f"[TEST-TAG-DEBUG] mode={mode} ten={ten_ngan} direct_user_id={direct_user_id} "
+              f"nhom={gid} -> status={resp.status_code} body={resp.text}")
 # ---------------------------------------------------------------------------
 # NHẮC THEO BÀI PHÂN LINE HÀNG NGÀY (THU NGÂN / FRESH / FMCG)
 # ---------------------------------------------------------------------------
@@ -595,7 +605,7 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
     """Tự tạo bài phân line cho 1 ngày (từ file lịch phân ca đã lưu), đăng
     lên nhóm với tag thật, và lưu vào kho dữ liệu phân line (dùng chung cho
     lịch nhắc THU NGÂN/FRESH/FMCG đã có)."""
-    if not GROUP_ID:
+    if not GROUP_IDS:
         print("[CAVIEC3-DEBUG] khong co GROUP_ID")
         return
     roster = storage.get_ca_schedule(target_date_str)
@@ -604,18 +614,19 @@ def auto_generate_and_post_phan_line(target_date_str, test_mode=False):
         return
     full_text, substitution, phan_line_data = _build_phan_line_text_and_data(target_date_str, roster)
     print(f"[CAVIEC3-DEBUG] da tao bai phan line cho {target_date_str}, {len(substitution)} mentions")
-    body = {
-        "to": GROUP_ID,
-        "messages": [{"type": "textV2", "text": full_text, "substitution": substitution}],
-    }
     try:
-        resp = requests.post(
-            "https://api.line.me/v2/bot/message/push",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"},
-            json=body, timeout=15,
-        )
-        if resp.status_code >= 300:
-            print("[CAVIEC3-DEBUG] Loi gui bai phan line:", resp.status_code, resp.text)
+        for gid in GROUP_IDS:
+            body = {
+                "to": gid,
+                "messages": [{"type": "textV2", "text": full_text, "substitution": substitution}],
+            }
+            resp = requests.post(
+                "https://api.line.me/v2/bot/message/push",
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"},
+                json=body, timeout=15,
+            )
+            if resp.status_code >= 300:
+                print("[CAVIEC3-DEBUG] Loi gui bai phan line:", resp.status_code, resp.text)
     except Exception:
         traceback.print_exc()
     storage.save_phan_line(target_date_str, phan_line_data)
@@ -624,7 +635,7 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     """Gửi nhắc theo bài phân line hôm nay cho đúng ca/nhóm.
     Nếu noi_dung_co_dinh=None thì dùng nội dung anh viết trong bài (dành cho FMCG sáng)."""
     print(f"[PHANLINE-DEBUG] scheduler chay slot={slot} ca={ca} group={group}")
-    if not GROUP_ID:
+    if not GROUP_IDS:
         print("[PHANLINE-DEBUG] khong co GROUP_ID -> bo qua")
         return
     try:
@@ -651,12 +662,25 @@ def send_phanline_reminder(ca, group, slot, noi_dung_co_dinh=None):
     else:
         noi_dung = ca_data.get("fmcg_text") or "Xử lí công việc FMCG hôm nay giúp em."
     try:
-        _push_mention_many(GROUP_ID, noi_dung, user_ids)
+        for gid in GROUP_IDS:
+            _push_mention_many(gid, noi_dung, user_ids)
         storage.danh_dau_da_nhac_phanline(ngay_str, slot)
         print(f"[PHANLINE-DEBUG] da gui xong slot={slot}")
     except Exception:
         traceback.print_exc()
-scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
+# QUAN TRỌNG: truyền timezone dạng CHUỖI ("Asia/Ho_Chi_Minh") cho
+# BackgroundScheduler từng bị chạy SAI theo giờ UTC (log thực tế cho thấy
+# lệch đúng 7 tiếng - vd job hẹn 8h sáng VN lại chạy lúc 8h UTC = 15h VN).
+# Sửa: truyền hẳn 1 object tzinfo (ZoneInfo) thay vì chuỗi, kèm phương án dự
+# phòng tự tính lệch UTC+7 nếu máy chủ thiếu dữ liệu múi giờ (tzdata), để
+# chắc chắn không bao giờ bị chạy nhầm giờ UTC nữa.
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfoLichChay
+    _TZ_VN_SCHEDULER = _ZoneInfoLichChay("Asia/Ho_Chi_Minh")
+except Exception:
+    from datetime import timezone as _TzFixed, timedelta as _TdFixed
+    _TZ_VN_SCHEDULER = _TzFixed(_TdFixed(hours=7))
+scheduler = BackgroundScheduler(timezone=_TZ_VN_SCHEDULER)
 scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0))
 scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0))
 # Ca sáng: THU NGÂN + FRESH -> 8h, 11h
@@ -713,7 +737,8 @@ def _test_nhac_phan_line_224():
     if not user_ids:
         print("[CAVIEC3-DEBUG] khong co user de nhac thu")
         return
-    _push_mention_many(GROUP_ID, _noi_dung_thu_ngan_fresh("sang"), user_ids)
+    for gid in GROUP_IDS:
+        _push_mention_many(gid, _noi_dung_thu_ngan_fresh("sang"), user_ids)
     print("[CAVIEC3-DEBUG] === da gui thu nhac ===")
 from apscheduler.triggers.date import DateTrigger
 _gio_tao_bai = _dt(2026, 8, 22, 12, 23, 0)
@@ -1113,7 +1138,7 @@ def handle_text_message(event):
             anh_data = _lay_anh_gan_nhat(target_id)
             if anh_data is not None:
                 try:
-                    ket_qua = ai_assistant.phan_tich_anh(anh_data)
+                    ket_qua = ai_assistant.phan_tich_anh(anh_data, target_id=target_id)
                     reply_text(messaging_api, event.reply_token, ket_qua)
                 except Exception:
                     traceback.print_exc()
@@ -1126,9 +1151,9 @@ def handle_text_message(event):
             if last_cmd_bao_cao in ("DT", "MTKM"):
                 try:
                     if last_cmd_bao_cao == "DT":
-                        ket_qua = ai_assistant.phan_tich_doanh_thu()
+                        ket_qua = ai_assistant.phan_tich_doanh_thu(target_id=target_id)
                     else:
-                        ket_qua = ai_assistant.phan_tich_nganh_hang()
+                        ket_qua = ai_assistant.phan_tich_nganh_hang(target_id=target_id)
                     reply_text(messaging_api, event.reply_token, ket_qua)
                 except Exception:
                     traceback.print_exc()
@@ -1173,7 +1198,7 @@ def handle_text_message(event):
         if not cau_hoi:
             return
         try:
-            tra_loi = ai_assistant.hoi_ai(cau_hoi)
+            tra_loi = ai_assistant.hoi_ai(cau_hoi, target_id=target_id)
             reply_text(messaging_api, event.reply_token, tra_loi)
         except Exception:
             traceback.print_exc()
