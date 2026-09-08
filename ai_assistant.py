@@ -23,6 +23,14 @@ NGUYÊN TẮC TRẢ LỜI (đã thống nhất với anh Quí):
   anh Quí cần biết thêm gì (giống cách 1 trợ lý thật sẽ hỏi lại), thay vì tự
   suy đoán hoặc chỉ trả lời cụt "chưa có dữ liệu".
 
+TÍNH NĂNG MỚI (08/09/2026):
+- "Phân tích số liệu" giờ áp dụng cho CẢ TD/THƯỞNG (trước chỉ có DT/MTKM) —
+  xem phan_tich_thuong().
+- "Nhận xét mục tiêu": anh Quí tag bot + nêu tên 1 bạn nhân viên + có ý
+  "nhận xét" -> bot so mục tiêu bạn đó được giao qua bài phân line với báo
+  cáo thực tế bạn đó tự nhắn trong nhóm (nhật ký tin nhắn lưu tự động, xem
+  app.py) -> nhận xét ngắn gọn, thẳng thắn. Xem nhan_xet_muc_tieu().
+
 GIỚI HẠN CỦA BẢN NÀY (nói rõ để anh Quí biết, tránh kỳ vọng sai):
 - Chưa có data "Lợi nhuận theo ngành hàng" (giá vốn cơ bản) và chưa có data
   "Danh sách Fresh theo tần suất KM" (2 ngày / 2 lần/tuần / 1 lần/tuần) -
@@ -268,6 +276,15 @@ QUY TẮC TRẢ LỜI (bắt buộc tuân thủ):
    gõ "DT", ngành hàng -> "MTKM", thưởng -> "TD"/"THƯỞNG", doanh thu theo
    tháng -> "DTDK"), có thể trả lời gọn con số rồi gợi ý anh gõ đúng lệnh
    đó để xem bản đầy đủ, đẹp hơn.
+4. QUAN TRỌNG: nếu anh hỏi số liệu Hủy tồn/MMKK theo 1 ngày cụ thể, theo 1
+   khoảng ngày, hoặc so sánh giữa 2 ngày cụ thể — ĐỪNG tự trả lời bằng bảng
+   chữ/markdown, kể cả khi anh chỉ hỏi 1-1 không tag. Việc này đã có lệnh
+   riêng xử lý sẵn (1 ngày/khoảng ngày -> thẻ card đẹp giống DT/MTKM; so
+   sánh 2 ngày -> trả lời phân tích tự nhiên, không phải bảng số thô), chỉ
+   cần nói ngắn gọn "Anh gõ \"hủy mmkk ngày <ngày>\" (hoặc \"hủy mmkk từ
+   ngày X đến ngày Y\", hoặc \"so sánh ngày X và ngày Y\") giúp em nhé,
+   đúng cú pháp em xử lý chính xác hơn" — không cần tính/liệt kê số liệu ra
+   trước.
 """
 
 
@@ -341,10 +358,10 @@ hủy tồn, doanh thu, hoặc số liệu khác tương tự). Bạn cần:
    thì nói rõ phần đó không đọc được, TUYỆT ĐỐI không suy đoán hay bịa số.
 2. Phân tích: chỉ ra ưu điểm, nhược điểm/vấn đề, nguyên nhân cụ thể (sản
    phẩm/ngành hàng nào gây vấn đề), và đề xuất cách khắc phục/kiểm soát —
-   phải thẳng, đúng thực tế, không nói giảm nói tránh.
+   phải thẳng, đúng thực tế, không nói giảm nói tránh, KHÔNG sợ mất lòng ai.
 3. Xưng "em", gọi người hỏi là "anh" (trừ khi có cơ sở rõ ràng người hỏi là
-   1 trong 7 bạn nhân viên ở trên thì gọi đúng tên bạn đó). Trả lời ngắn
-   gọn, đi thẳng vào việc, có thể dùng gạch đầu dòng cho dễ đọc trong LINE.
+   1 trong 7 bạn nhân viên ở trên thì gọi đúng tên bạn đó). Trả lời NGẮN
+   GỌN, đi thẳng vào việc, có thể dùng gạch đầu dòng cho dễ đọc trong LINE.
 """
 
 
@@ -360,10 +377,11 @@ NHÂN SỰ (7 bạn nhân viên dưới quyền anh Quí):
 NHIỆM VỤ: phân tích đúng số liệu báo cáo được cung cấp bên dưới (đã lấy sẵn
 từ hệ thống, KHÔNG suy đoán/bịa thêm số liệu ngoài phạm vi đã cho). Chỉ ra
 ưu điểm, nhược điểm/vấn đề, nguyên nhân cụ thể, và đề xuất cách khắc phục/
-kiểm soát — phải thẳng, đúng thực tế, không nói giảm nói tránh, tư duy phân
-tích sâu (không trả lời hời hợt, qua loa).
-Xưng "em", gọi người hỏi là "anh". Trả lời ngắn gọn, đi thẳng vào việc, có
-thể dùng gạch đầu dòng cho dễ đọc trong LINE.
+kiểm soát — phải thẳng, đúng thực tế, không nói giảm nói tránh, KHÔNG sợ
+mất lòng ai, tư duy phân tích sâu (không trả lời hời hợt, qua loa).
+Xưng "em", gọi người hỏi là "anh". Trả lời NGẮN GỌN, đi thẳng vào việc, có
+thể dùng gạch đầu dòng cho dễ đọc trong LINE — không viết dài dòng, không
+rào đón/khen xã giao trước khi vào ý chính.
 """
 
 
@@ -432,6 +450,15 @@ def phan_tich_nganh_hang(target_id=None):
     return phan_tich_du_lieu("Báo cáo ngành hàng (MTKM)", noi_dung, target_id=target_id)
 
 
+def phan_tich_thuong(target_id=None):
+    """Phân tích báo cáo THƯỞNG (TD/THƯỞNG) đang có trong hệ thống — MỚI
+    (08/09/2026, theo yêu cầu anh Quí: mở rộng "phân tích số liệu" cho TẤT
+    CẢ các mục DT/TD/MTKM, không chỉ riêng hủy mmkk). Dùng khi anh gõ
+    "TD"/"THƯỞNG" rồi tag bot + "phân tích số liệu" ngay sau đó."""
+    noi_dung = _an_toan(_context_thuong, "Chưa có dữ liệu thưởng (TD/THƯỞNG).")
+    return phan_tich_du_lieu("Báo cáo thưởng (TD/THƯỞNG)", noi_dung, target_id=target_id)
+
+
 def phan_tich_anh(image_bytes, media_type="image/jpeg", target_id=None):
     """Gửi ảnh (bytes) cho Claude Vision để đọc + phân tích số liệu trong ảnh.
     Không bao giờ raise ra ngoài — luôn trả về 1 chuỗi text để bot reply
@@ -488,3 +515,94 @@ def phan_tich_anh(image_bytes, media_type="image/jpeg", target_id=None):
         import traceback
         traceback.print_exc()
         return "Có lỗi khi em xử lý ảnh này, thử lại giúp em nhé."
+
+
+# ---------------------------------------------------------------------------
+# NHẬN XÉT MỤC TIÊU vs BÁO CÁO THỰC TẾ (MỚI 08/09/2026)
+# So sánh mục tiêu của 1 bạn nhân viên (lấy từ bài phân line anh Quí đăng)
+# với báo cáo thực tế bạn đó tự nhắn trong nhóm (nhật ký tin nhắn trong
+# ngày, lưu tự động không cần cú pháp gì đặc biệt). Dùng khi anh Quí tag bot
+# + nêu tên bạn + có ý "nhận xét" (VD "nhận xét giúp anh Quyên hôm nay").
+# ---------------------------------------------------------------------------
+def _build_system_prompt_nhan_xet():
+    return f"""Bạn là TROLY, trợ lý ảo hỗ trợ anh Quí — quản lý 1 cửa hàng Bách Hóa Xanh.
+
+THÔNG TIN CỬA HÀNG:
+{STORE_INFO}
+
+NHÂN SỰ (7 bạn nhân viên dưới quyền anh Quí):
+{NHAN_SU}
+
+NHIỆM VỤ: anh Quí nhờ nhận xét kết quả của 1 bạn nhân viên trong 1 ngày cụ
+thể — so sánh MỤC TIÊU (anh Quí giao qua bài phân line đầu ca) với BÁO CÁO
+THỰC TẾ (bạn đó tự nhắn trong nhóm, văn phong tự do, không theo khuôn mẫu).
+QUY TẮC:
+1. Đọc kỹ báo cáo thực tế (có thể ghi tắt, thiếu dấu, không đúng thứ tự so
+   với mục tiêu) rồi tự ghép đúng từng mục tiêu với phần báo cáo tương ứng.
+   Nếu 1 mục tiêu không thấy báo cáo nào nhắc tới, nói thẳng "chưa thấy báo
+   cáo mục này" — KHÔNG tự suy đoán là đạt hay không đạt.
+2. Chỉ rõ mục nào đạt/vượt, mục nào chưa đạt (kèm số liệu cụ thể nếu có).
+   Trả lời thẳng, đúng thực tế, KHÔNG nói giảm nói tránh, KHÔNG sợ mất lòng
+   ai, không khen xã giao vô nghĩa.
+3. Với mục chưa đạt, gợi ý ngắn 1 cách khắc phục cụ thể, thực tế cho ca sau
+   (không chung chung kiểu "cố gắng hơn").
+4. Xưng "em", gọi anh Quí là "anh". Trả lời NGẮN GỌN, đi thẳng vào việc, có
+   thể dùng gạch đầu dòng cho dễ đọc trong LINE.
+"""
+
+
+def nhan_xet_muc_tieu(ten_nhan_vien, ngay_str, muc_tieu_text, bao_cao_rows, target_id=None):
+    """So sánh mục tiêu (từ bài phân line) với báo cáo thực tế (nhật ký tin
+    nhắn trong ngày) của 1 bạn nhân viên, trả về nhận xét ngắn gọn, thẳng
+    thắn. bao_cao_rows: list[(gio, noi_dung)] lấy từ
+    storage.get_nhat_ky_nhan_vien(). Không bao giờ raise ra ngoài — luôn
+    trả về 1 chuỗi text để bot reply thẳng trong LINE."""
+    if not ANTHROPIC_API_KEY:
+        return "Chưa cấu hình được AI (thiếu ANTHROPIC_API_KEY trên Railway), anh báo lại giúp em."
+    bao_cao_text = (
+        "\n".join(f"[{gio or '?'}] {nd}" for gio, nd in bao_cao_rows)
+        if bao_cao_rows else "(chưa có tin nhắn báo cáo nào)"
+    )
+    muc_tieu_hien = muc_tieu_text.strip() if muc_tieu_text and muc_tieu_text.strip() else "(chưa ghi nhận được mục tiêu ngày này)"
+    noi_dung_nguoi_dung = (
+        f"Nhận xét giúp em kết quả của {ten_nhan_vien} ngày {ngay_str}.\n\n"
+        f"MỤC TIÊU (từ bài phân line):\n{muc_tieu_hien}\n\n"
+        f"BÁO CÁO THỰC TẾ ({ten_nhan_vien} tự nhắn trong nhóm ngày này):\n{bao_cao_text}"
+    )
+    try:
+        system_prompt = _build_system_prompt_nhan_xet()
+        messages = list(_lay_lich_su(target_id))
+        messages.append({"role": "user", "content": noi_dung_nguoi_dung})
+        body = {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 800,
+            "system": system_prompt,
+            "messages": messages,
+        }
+        resp = requests.post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=body,
+            timeout=30,
+        )
+        if resp.status_code >= 300:
+            print("Loi goi Claude API (nhan xet muc tieu):", resp.status_code, resp.text)
+            return "Em nhận xét bị lỗi, thử lại sau giúp em nhé."
+        data = resp.json()
+        parts = data.get("content") or []
+        text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+        text = text.strip()
+        ket_qua = text or "Em chưa nhận xét được, anh hỏi lại giúp em."
+        _luu_luot_chat(target_id, "user", f"[Nhờ nhận xét mục tiêu] {ten_nhan_vien} ngày {ngay_str}")
+        _luu_luot_chat(target_id, "assistant", ket_qua)
+        return ket_qua
+    except requests.exceptions.RequestException:
+        return "Em không kết nối được tới AI lúc này, thử lại sau giúp em nhé."
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return "Có lỗi khi em nhận xét, thử lại giúp em nhé."
