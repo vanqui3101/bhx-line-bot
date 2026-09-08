@@ -40,7 +40,7 @@ import uuid
 import traceback
 import requests
 import json
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timedelta as _td
 from flask import Flask, request, abort, send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -154,9 +154,20 @@ def _bo_dau(text):
     khong_dau = khong_dau.replace("đ", "d").replace("Đ", "D")
     return khong_dau.lower()
 BOT_TAG_TEXT_KD = "qui 227216"
-HUY_MMKK_TRIGGER = re.compile(r"huy\s*mmkk")
+# 08/09/2026: nới lỏng để bắt được cả cách gõ tự nhiên có chữ "tồn" xen giữa
+# (vd "hủy tồn mmkk", "hủy tồn + mmkk") — trước đây chỉ khớp đúng "hủy mmkk"
+# 2 từ liền nhau, các cách gõ khác bị rớt xuống luồng AI trả lời tự do (ra
+# bảng chữ thô thay vì thẻ card).
+HUY_MMKK_TRIGGER = re.compile(r"huy.{0,12}mmkk|mmkk.{0,12}huy")
 PHAN_TICH_TRIGGER = re.compile(r"phan\s*tich(\s*so\s*lieu)?")
 SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*thuy\s*hai\s*san")
+# MỚI (08/09/2026): lệnh "nhận xét" — so mục tiêu (bài phân line) với báo
+# cáo thực tế (nhật ký tin nhắn) của 1 bạn nhân viên. Khớp trên text_kd
+# (không dấu). Tên bạn thì PHẢI dò trên text GỐC (còn dấu, đúng hoa/thường)
+# để tránh nhầm "Ánh" (tên) với "anh" (đại từ "anh" Quí hay dùng) — 2 từ
+# này chỉ phân biệt được nhờ dấu, bỏ dấu đi thì giống hệt nhau.
+NHAN_XET_TRIGGER = re.compile(r"nhan\s*xet")
+TEN_NHAN_XET_RE = re.compile(r"\b(Mi|Quyên|Sang|Thi|Ánh|Linh|Son)\b")
 def _co_tag_bot(text):
     return BOT_TAG_TEXT_KD in _bo_dau(text)
 # ---- TROLY TRẢ LỜI TỰ DO (MỚI) ----
@@ -202,6 +213,16 @@ def _now_vn_time_str():
     except Exception:
         now_vn = _dt.now()
     return now_vn.strftime("%H:%M")
+def _now_vn_datetime():
+    try:
+        from zoneinfo import ZoneInfo
+        return _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
+    except Exception:
+        return _dt.now()
+def _ngay_hien_tai_str():
+    return _now_vn_datetime().strftime("%Y-%m-%d")
+def _ngay_hom_qua_str():
+    return (_now_vn_datetime() - _td(days=1)).strftime("%Y-%m-%d")
 # ---------------------------------------------------------------------------
 # Dựng nội dung báo cáo (dùng chung cho lệnh DT)
 # ---------------------------------------------------------------------------
@@ -422,7 +443,13 @@ def _tu_dong_dang_ky_tu_mention(text, mentionees):
 def _parse_phan_line(text, mentionees):
     """Tách bài phân line thành dữ liệu theo ca (sáng/chiều) x nhóm
     (thu_ngan_fresh / fmcg). mentionees: list các object có .index, .length,
-    .user_id (lấy từ event.message.mention.mentionees, tin nhắn LINE gốc)."""
+    .user_id (lấy từ event.message.mention.mentionees, tin nhắn LINE gốc).
+
+    MỚI (08/09/2026): còn tách thêm MỤC TIÊU riêng từng bạn — các dòng ngay
+    SAU dòng có tag tên bạn đó (tới khi gặp dòng tag khác/dòng tiêu đề mới/
+    dòng trống) được gom lại thành text mục tiêu của đúng bạn đó, lưu vào
+    data[ca]["muc_tieu"][user_id] — dùng cho tính năng "nhận xét mục tiêu"
+    (so với báo cáo thực tế bạn đó tự nhắn cuối ca/cuối ngày)."""
     lines = text.split("\n")
     # tinh vi tri (offset ky tu) bat dau cua tung dong trong text goc
     offsets = []
@@ -431,11 +458,12 @@ def _parse_phan_line(text, mentionees):
         offsets.append(pos)
         pos += len(line) + 1  # +1 cho ky tu xuong dong
     data = {
-        "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
-        "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": []},
+        "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
+        "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
     }
     current_ca = "sang"
     current_group = "thu_ngan_fresh"
+    current_target_users = []  # user_id của (các) bạn vừa được tag ở dòng gần nhất
     for i, line in enumerate(lines):
         line_upper = line.strip().upper()
         line_start = offsets[i]
@@ -454,8 +482,10 @@ def _parse_phan_line(text, mentionees):
         elif line_upper.startswith("FMCG"):
             is_header = True
             current_group = "fmcg"
-        # tim mention nam trong dong nay
+        # tim mention nam trong dong nay (giữ nguyên logic cũ — quét mention
+        # TRƯỚC khi quyết định continue, kể cả dòng đó cũng là header)
         line_has_mention = False
+        line_users = []
         for m in mentionees:
             m_index = getattr(m, "index", None)
             m_uid = getattr(m, "user_id", None) or getattr(m, "userId", None)
@@ -463,16 +493,27 @@ def _parse_phan_line(text, mentionees):
                 continue
             if line_start <= m_index < line_end:
                 line_has_mention = True
+                line_users.append(m_uid)
                 bucket = data[current_ca][f"{current_group}_users"]
                 if m_uid not in bucket:
                     bucket.append(m_uid)
-        if is_header or line_has_mention:
+        if is_header:
+            current_target_users = []
+            continue
+        if line_has_mention:
+            current_target_users = line_users
             continue
         stripped = line.strip()
         if not stripped:
+            current_target_users = []
             continue
         if current_group == "fmcg":
             data[current_ca]["fmcg_text_lines"].append(stripped)
+        if current_target_users:
+            for uid in current_target_users:
+                muc_tieu_bucket = data[current_ca]["muc_tieu"]
+                existing = muc_tieu_bucket.get(uid, "")
+                muc_tieu_bucket[uid] = f"{existing}\n{stripped}".strip() if existing else stripped
     for ca in ("sang", "chieu"):
         data[ca]["fmcg_text"] = "\n".join(data[ca]["fmcg_text_lines"])
         del data[ca]["fmcg_text_lines"]
@@ -922,6 +963,22 @@ def handle_text_message(event):
             target_id = event.source.group_id
         else:
             target_id = getattr(event.source, "user_id", None)
+        # NHẬT KÝ TIN NHẮN NHÂN VIÊN (MỚI 08/09/2026) — lưu lại MỌI tin nhắn
+        # trong nhóm của bạn nào đã ĐĂNG KÝ tên (qua "DK <Tên>" hoặc tự học
+        # qua tag bài phân line), làm "báo cáo thực tế" cho tính năng "nhận
+        # xét mục tiêu". Không cần cú pháp gì đặc biệt, không trả lời gì cả
+        # (im lặng lưu), không ảnh hưởng các lệnh xử lý bên dưới.
+        if source_type == "group":
+            _uid_nguoi_gui = getattr(event.source, "user_id", None)
+            if _uid_nguoi_gui and text:
+                _ten_ngan_nguoi_gui = storage.get_ten_ngan_tu_user_id(_uid_nguoi_gui)
+                if _ten_ngan_nguoi_gui:
+                    try:
+                        storage.save_nhat_ky_nhan_vien(
+                            _ngay_hien_tai_str(), _uid_nguoi_gui, _now_vn_time_str(), text
+                        )
+                    except Exception:
+                        traceback.print_exc()
         # Bài PHÂN LINE hàng ngày (THU NGÂN / FRESH / FMCG) — tự nhận diện,
         # KHÔNG cần lệnh gì cả. Chỉ xử lý khi gõ trong nhóm (cần group_id để
         # tra tên hiển thị + tag lại sau này).
@@ -1071,6 +1128,7 @@ def handle_text_message(event):
                 messaging_api.push_message(
                     PushMessageRequest(to=target_id, messages=[flex_message])
                 )
+                storage.save_last_command(target_id, "TD", _now_vn_time_str())
             except Exception as e:
                 traceback.print_exc()
                 try:
@@ -1079,11 +1137,25 @@ def handle_text_message(event):
                     traceback.print_exc()
             return
         # Lệnh HỦY MMKK — Công việc 1 (đúng 1 ngày) / Công việc 2 (nhiều ngày)
-        # Bắt buộc: gõ trong nhóm + có tag tên bot + câu chứa cụm "hủy mmkk".
-        if source_type == "group" and _co_tag_bot(text) and HUY_MMKK_TRIGGER.search(text_kd):
+        # / so sánh 2 ngày cụ thể (MỚI 08/09/2026, đã CHỈNH LẠI theo phản hồi
+        # của anh Quí: "so sánh" trả lời bằng văn phong PHÂN TÍCH tự nhiên —
+        # giống đang trò chuyện 1-1 — chứ KHÔNG phải 2 thẻ card số liệu thô
+        # đặt cạnh nhau). Trong nhóm: bắt buộc tag tên bot. Chat riêng 1-1:
+        # không cần tag (giống DT/MTKM) — trước đây lệnh này CHỈ hoạt động
+        # trong nhóm, hỏi riêng 1-1 sẽ bị rớt xuống luồng AI trả lời tự do.
+        if HUY_MMKK_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
             try:
-                mode, ngay_tu, ngay_den = fresh_report.parse_date_request(text)
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
+                co_so_sanh, ngay_a, ngay_b = fresh_report.parse_so_sanh_2_ngay(text)
+                if co_so_sanh:
+                    ket_qua = fresh_report.build_so_sanh_2_ngay(ngay_a, ngay_b)
+                    if ket_qua is None:
+                        reply_text(messaging_api, event.reply_token,
+                                   f"Chưa có dữ liệu HỦY TỒN + MMKK ngày {ngay_a.strftime('%d/%m')} lẫn ngày {ngay_b.strftime('%d/%m')}. Anh gửi file cho bot trước nhé.")
+                        return
+                    reply_text(messaging_api, event.reply_token, ket_qua)
+                    return
+                mode, ngay_tu, ngay_den = fresh_report.parse_date_request(text)
                 if mode == "single":
                     bubble = fresh_report.build_cong_viec_1(ten_st, ngay_tu)
                     if bubble is None:
@@ -1108,8 +1180,8 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
-        # Lệnh DOANH THU THỦY HẢI SẢN
-        if source_type == "group" and _co_tag_bot(text) and SEAFOOD_TRIGGER.search(text_kd):
+        # Lệnh DOANH THU THỦY HẢI SẢN — tương tự, cho phép cả chat riêng 1-1.
+        if SEAFOOD_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
             try:
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
                 bubble = fresh_report.build_doanh_thu_thuy_hai_san(ten_st)
@@ -1128,12 +1200,13 @@ def handle_text_message(event):
         # Lệnh PHÂN TÍCH SỐ LIỆU — thứ tự ưu tiên:
         # 1. Có ẢNH gần nhất còn hiệu lực (gửi trong vòng 2 tiếng, đúng đoạn
         #    chat này) -> đọc ảnh bằng Claude Vision rồi phân tích.
-        # 2. Không có ảnh, nhưng lệnh gần nhất trong đoạn chat này là "DT"
-        #    hoặc "MTKM" -> phân tích luôn báo cáo đó bằng data đã có sẵn
-        #    trong hệ thống (dùng Claude, không cần gửi ảnh/file gì thêm).
+        # 2. Không có ảnh, nhưng lệnh gần nhất trong đoạn chat này là "DT",
+        #    "MTKM" HOẶC "TD" (MỞ RỘNG 08/09/2026, trước chỉ có DT/MTKM) ->
+        #    phân tích luôn báo cáo đó bằng data đã có sẵn trong hệ thống
+        #    (dùng Claude, không cần gửi ảnh/file gì thêm).
         # 3. Không khớp 2 trường hợp trên -> quay lại luồng cũ: bắt buộc
         #    phải gõ "hủy mmkk <ngày>" trước, có kết quả rồi mới phân tích.
-        if (source_type == "group" and _co_tag_bot(text) and PHAN_TICH_TRIGGER.search(text_kd)
+        if (PHAN_TICH_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text))
                 and not HUY_MMKK_TRIGGER.search(text_kd)):
             anh_data = _lay_anh_gan_nhat(target_id)
             if anh_data is not None:
@@ -1148,12 +1221,14 @@ def handle_text_message(event):
                         traceback.print_exc()
                 return
             last_cmd_bao_cao = storage.get_last_command(target_id)
-            if last_cmd_bao_cao in ("DT", "MTKM"):
+            if last_cmd_bao_cao in ("DT", "MTKM", "TD"):
                 try:
                     if last_cmd_bao_cao == "DT":
                         ket_qua = ai_assistant.phan_tich_doanh_thu(target_id=target_id)
-                    else:
+                    elif last_cmd_bao_cao == "MTKM":
                         ket_qua = ai_assistant.phan_tich_nganh_hang(target_id=target_id)
+                    else:
+                        ket_qua = ai_assistant.phan_tich_thuong(target_id=target_id)
                     reply_text(messaging_api, event.reply_token, ket_qua)
                 except Exception:
                     traceback.print_exc()
@@ -1184,6 +1259,57 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     reply_text(messaging_api, event.reply_token, f"Có lỗi khi phân tích: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # Lệnh NHẬN XÉT MỤC TIÊU (MỚI 08/09/2026) — anh Quí tag bot + nêu tên
+        # 1 bạn nhân viên + có ý "nhận xét" (VD "nhận xét giúp anh Quyên hôm
+        # nay") -> bot so mục tiêu bạn đó được giao qua bài phân line với
+        # báo cáo thực tế (nhật ký tin nhắn bạn đó tự gửi trong nhóm).
+        if NHAN_XET_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
+            try:
+                ten_match = TEN_NHAN_XET_RE.search(text)
+                if not ten_match:
+                    reply_text(
+                        messaging_api, event.reply_token,
+                        "Anh nêu rõ tên bạn nhân viên trong câu giúp em nhé "
+                        "(VD: \"nhận xét giúp anh Quyên hôm nay\")."
+                    )
+                    return
+                ten_chuan = ten_match.group(1)
+                user_id_nv = storage.get_user_id_da_dang_ky(ten_chuan)
+                if not user_id_nv:
+                    reply_text(
+                        messaging_api, event.reply_token,
+                        f"Em chưa có ID LINE của {ten_chuan} (chưa từng được tag trong bài phân line, "
+                        f"cũng chưa đăng ký). Nhờ {ten_chuan} gõ \"DK {ten_chuan}\" trong nhóm 1 lần giúp em."
+                    )
+                    return
+                ngay_str = _ngay_hom_qua_str() if "hom qua" in text_kd else _ngay_hien_tai_str()
+                phan_line_data = storage.get_phan_line(ngay_str) or {}
+                muc_tieu_text = ""
+                for ca in ("sang", "chieu"):
+                    mt = phan_line_data.get(ca, {}).get("muc_tieu", {}).get(user_id_nv)
+                    if mt:
+                        muc_tieu_text = mt
+                        break
+                bao_cao_rows = storage.get_nhat_ky_nhan_vien(ngay_str, user_id_nv)
+                if not muc_tieu_text and not bao_cao_rows:
+                    reply_text(
+                        messaging_api, event.reply_token,
+                        f"Em chưa có mục tiêu lẫn tin nhắn báo cáo của {ten_chuan} ngày "
+                        f"{ngay_str}. Anh kiểm tra lại đã đăng bài phân line có tag {ten_chuan} "
+                        f"chưa, và {ten_chuan} đã nhắn báo cáo trong nhóm chưa nhé."
+                    )
+                    return
+                ket_qua = ai_assistant.nhan_xet_muc_tieu(
+                    ten_chuan, ngay_str, muc_tieu_text, bao_cao_rows, target_id=target_id
+                )
+                reply_text(messaging_api, event.reply_token, ket_qua)
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    reply_text(messaging_api, event.reply_token, f"Có lỗi khi em nhận xét: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1221,6 +1347,17 @@ def reply_flex(messaging_api, reply_token, alt_text, bubble):
     flex_message = FlexMessage(
         alt_text=alt_text,
         contents=FlexContainer.from_dict(bubble),
+    )
+    messaging_api.reply_message(
+        ReplyMessageRequest(reply_token=reply_token, messages=[flex_message])
+    )
+def reply_flex_multi(messaging_api, reply_token, alt_text, bubbles):
+    """Gửi nhiều thẻ Flex (card) cùng lúc trong 1 tin nhắn, dạng carousel
+    (vuốt ngang xem từng thẻ) — dùng cho "so sánh ngày X và ngày Y"."""
+    carousel = {"type": "carousel", "contents": bubbles}
+    flex_message = FlexMessage(
+        alt_text=alt_text,
+        contents=FlexContainer.from_dict(carousel),
     )
     messaging_api.reply_message(
         ReplyMessageRequest(reply_token=reply_token, messages=[flex_message])
