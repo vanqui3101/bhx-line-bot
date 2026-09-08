@@ -1,85 +1,60 @@
 """
 flex_builder.py - Dựng nội dung LINE Flex Message.
-
-Theme: nền trắng, header vàng, chữ nhãn màu đen, số liệu màu đỏ.
-
+Theme: nền trắng/xám nhạt, header vàng nhạt (gold), chữ nhãn màu đen, số liệu màu đỏ.
 Có 2 loại thẻ:
 - build_flex_message(...)          -> Báo cáo DOANH THU (Offline / Online / Tổng / Bill TB)
 - build_category_flex_message(...) -> Báo cáo NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
 """
-
 from datetime import datetime
 import math
-
-YELLOW = "#FFEE00"
+# Bảng màu (08/09/2026: đã làm DỊU màu lại theo yêu cầu — trước đây nền quá
+# xanh đậm + vàng chóe, giờ chuyển về nền trắng/xám rất nhạt, header vàng gold
+# nhạt hơn, các khối nền phụ chỉ còn xám nhạt thay vì xanh dương bão hòa).
+YELLOW = "#F6D365"       # header — vàng gold dịu (trước: #FFEE00 quá chói)
 BLACK = "#1A1A1A"
-RED = "#D62020"
+RED = "#C0392B"          # số liệu — đỏ trầm hơn (trước: #D62020)
 GRAY = "#666666"
 GRAY_LIGHT = "#555555"
-DIVIDER = "#A8CCE0"
-ROW_BG = "#D7ECFA"
-PAGE_BG = "#C8E6F9"
+DIVIDER = "#E0E0E0"      # trước: #A8CCE0 (xanh dương)
+ROW_BG = "#F5F5F5"       # trước: #D7ECFA (xanh dương đậm)
+PAGE_BG = "#FFFFFF"      # nền thẻ — trắng (trước: #C8E6F9 xanh dương bão hòa)
 GREEN = "#1E8246"
-
-
 def _fmt_money(n):
     return f"{n:,.0f}".replace(",", ".")
-
-
 def _fmt_int(n):
     return f"{n:,.0f}".replace(",", ".")
-
-
 def _fmt_date_short(ngay):
     try:
         d = datetime.strptime(ngay, "%Y-%m-%d")
         return d.strftime("%d/%m")
     except Exception:
         return ngay or "—"
-
-
 def _fmt_date_display(ngay):
     try:
         d = datetime.strptime(ngay, "%Y-%m-%d")
         return d.strftime("%d/%m/%Y")
     except Exception:
         return ngay
-
-
 def _total_dt(rec):
     return (rec.get("dt_offline") or 0) + (rec.get("dt_online") or 0)
-
-
 def _offline_dt(rec):
     return rec.get("dt_offline") or 0
-
-
 def _online_dt(rec):
     return rec.get("dt_online") or 0
-
-
 def _total_bill(rec):
     return (rec.get("bill_offline") or 0) + (rec.get("bill_online") or 0)
-
-
 def _avg_bill_value(records):
     total_dt = sum(_total_dt(r) for r in records)
     total_bill = sum(_total_bill(r) for r in records)
     return (total_dt / total_bill) if total_bill else 0
-
-
 def _pct_change(new, old):
     if not old:
         return None
     return (new - old) / old * 100
-
-
 def _arrow(pct):
     if pct is None:
         return ""
     return "▲" if pct >= 0 else "▼"
-
-
 def _delta_text(now, prev, pct):
     if prev is None:
         return "Chưa có dữ liệu tháng trước để so sánh"
@@ -87,12 +62,9 @@ def _delta_text(now, prev, pct):
     sign = "+" if delta >= 0 else "-"
     arrow = _arrow(pct)
     return f"{sign}{_fmt_money(abs(delta))} đ ({arrow}{f'{abs(pct):.1f}'.replace('.', ',')}%)"
-
-
 def _metric_block(label, now_val, prev_val, big=False):
     pct = _pct_change(now_val, prev_val) if prev_val is not None else None
     delta_str = _delta_text(now_val, prev_val, pct)
-
     return {
         "type": "box",
         "layout": "vertical",
@@ -135,15 +107,12 @@ def _metric_block(label, now_val, prev_val, big=False):
             },
         ],
     }
-
-
 def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio_now=None, gio_prev=None,
                         nganh_hang_breakdown=None, nganh_hang_ngay=None):
     total_now = sum(_total_dt(r) for r in latest_records)
     offline_now = sum(_offline_dt(r) for r in latest_records)
     online_now = sum(_online_dt(r) for r in latest_records)
     avg_bill_now = _avg_bill_value(latest_records)
-
     if prev_records:
         total_prev = sum(_total_dt(r) for r in prev_records)
         offline_prev = sum(_offline_dt(r) for r in prev_records)
@@ -151,14 +120,11 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         avg_bill_prev = _avg_bill_value(prev_records)
     else:
         total_prev = offline_prev = online_prev = avg_bill_prev = None
-
     ten_st = latest_records[0].get("ten_st") if latest_records else None
     subtitle_line2 = _fmt_date_display(latest_date)
     if prev_date:
         subtitle_line2 += f" · so với {_fmt_date_display(prev_date)} (cùng ngày tháng trước)"
-
     note_text = "Chưa có dữ liệu cùng ngày tháng trước để so sánh." if not prev_records else None
-
     body_contents = [
         {
             "type": "box",
@@ -181,7 +147,6 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         body_contents.append(
             {"type": "text", "text": note_text, "size": "xxs", "color": GRAY, "margin": "md", "wrap": True}
         )
-
     if nganh_hang_breakdown:
         body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
         header_line = "DOANH THU THEO NGÀNH HÀNG"
@@ -216,7 +181,6 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
                 {"type": "text", "text": f"{_fmt_money(tong_nh)} đ", "size": "xs", "weight": "bold", "color": RED, "flex": 5, "align": "end"},
             ],
         })
-
     contents = {
         "type": "bubble",
         "size": "giga",
@@ -240,16 +204,11 @@ def build_flex_message(latest_date, latest_records, prev_date, prev_records, gio
         },
     }
     return contents
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
 # ---------------------------------------------------------------------------
-
-TABLE_HEAD_BG = "#AAD2F0"
-ROW_ALT_BG = "#DEF0FB"
-
-
+TABLE_HEAD_BG = "#EFEFEF"   # trước: #AAD2F0 (xanh dương)
+ROW_ALT_BG = "#FAFAFA"      # trước: #DEF0FB (xanh dương nhạt)
 def _table_header_row():
     return {
         "type": "box",
@@ -263,8 +222,6 @@ def _table_header_row():
             {"type": "text", "text": "% bán/nhập", "size": "md", "weight": "bold", "color": BLACK, "flex": 4, "align": "end"},
         ],
     }
-
-
 def _table_data_row(ten, qty_text, pct_value, alt_bg):
     pct_text = f"{pct_value:.1f}%" if pct_value is not None else "—"
     row = {
@@ -280,8 +237,6 @@ def _table_data_row(ten, qty_text, pct_value, alt_bg):
     if alt_bg:
         row["backgroundColor"] = ROW_ALT_BG
     return row
-
-
 def _category_section_table(title, note, items, empty_note):
     """Mục có bảng sản phẩm (Bánh trung thu / Trà C2) — không có dòng Tổng."""
     contents = [{"type": "text", "text": title, "size": "xl", "weight": "bold", "color": BLACK}]
@@ -299,8 +254,6 @@ def _category_section_table(title, note, items, empty_note):
         "margin": "lg",
         "contents": contents,
     }
-
-
 def _category_section_simple(title, total_label, total_value_text):
     """Mục chỉ có 1 dòng tổng (Nấm)."""
     return {
@@ -320,23 +273,18 @@ def _category_section_simple(title, total_label, total_value_text):
             },
         ],
     }
-
-
 def build_category_flex_message(ngay, ten_st, payload):
     nam_dt = payload["nam"]["doanh_thu"]
-
     btt = payload["banh_trung_thu"]
     btt_items = [
         (it["ten"], f"{_fmt_int(it['sl'])} cái", it.get("pct_ban_nhap"))
         for it in btt["items"]
     ]
-
     c2 = payload["c2"]
     c2_items = [
         (it["ten"], f"{math.ceil(it['chai'] / 24)} thùng", it.get("pct_ban_nhap"))
         for it in c2["items"]
     ]
-
     sections = [
         _category_section_simple("NẤM", "Doanh thu", f"{_fmt_money(nam_dt)} đ"),
         _category_section_table(
@@ -352,13 +300,11 @@ def build_category_flex_message(ngay, ten_st, payload):
             "Không có dữ liệu bán trong ngày",
         ),
     ]
-
     body_contents = []
     for i, sec in enumerate(sections):
         body_contents.append(sec)
         if i < len(sections) - 1:
             body_contents.append({"type": "separator", "margin": "lg", "color": DIVIDER})
-
     contents = {
         "type": "bubble",
         "size": "giga",
@@ -382,12 +328,9 @@ def build_category_flex_message(ngay, ten_st, payload):
         },
     }
     return contents
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO THƯỞNG (FRESH + FMCG) — lệnh "TD" / "THƯỞNG"
 # ---------------------------------------------------------------------------
-
 def _thuong_table_header():
     return {
         "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
@@ -399,8 +342,6 @@ def _thuong_table_header():
             {"type": "text", "text": "Dự kiến", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
         ],
     }
-
-
 def _thuong_table_row(label, base_text, thuc_te_text, du_kien_text):
     return {
         "type": "box", "layout": "horizontal", "paddingAll": "6px",
@@ -411,8 +352,6 @@ def _thuong_table_row(label, base_text, thuc_te_text, du_kien_text):
             {"type": "text", "text": du_kien_text, "size": "sm", "weight": "bold", "color": GREEN, "flex": 3, "align": "center", "wrap": True},
         ],
     }
-
-
 def _thuong_muc_box(label, gia_tri):
     return {
         "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
@@ -422,28 +361,21 @@ def _thuong_muc_box(label, gia_tri):
             {"type": "text", "text": gia_tri, "size": "md", "weight": "bold", "color": GREEN, "flex": 4, "align": "end"},
         ],
     }
-
-
 def _thuong_section_title(title, note):
     contents = [{"type": "text", "text": title, "size": "lg", "weight": "bold", "color": BLACK}]
     if note:
         contents.append({"type": "text", "text": note, "size": "xs", "color": GRAY, "margin": "xs", "wrap": True})
     return contents
-
-
 def build_thuong_flex_message(ten_st, payload):
     ngay_bd = _fmt_date_display(payload["ngay_bat_dau"])
     ngay_kt = _fmt_date_display(payload["ngay_ket_thuc"])
     so_ngay = payload["so_ngay_da_qua"]
     so_ngay_thang = payload["so_ngay_ca_thang"]
-
     fresh = payload["fresh"]
     skdm = payload["skdm"]
     bianuoc = payload["bianuoc"]
     c2 = payload["c2"]
-
     body_contents = []
-
     # ---- FRESH ----
     body_contents.extend(_thuong_section_title("FRESH — Thịt heo/gà nhập khẩu", "So với TB tháng 5-6/2026"))
     body_contents.append(_thuong_table_header())
@@ -457,9 +389,7 @@ def build_thuong_flex_message(ten_st, payload):
         f"{fresh['pct']:+.1f}%".replace(".", ","),
     ))
     body_contents.append(_thuong_muc_box(f"Mức thưởng: {fresh['muc']}", f"{_fmt_money(fresh['thuong_du_kien'])} đ"))
-
     body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
-
     # ---- SKDM ----
     body_contents.extend(_thuong_section_title("Sữa - Kem - Đông - Mát", "So với tháng 7/2026"))
     body_contents.append(_thuong_table_header())
@@ -473,9 +403,7 @@ def build_thuong_flex_message(ten_st, payload):
         f"{skdm['pct']:+.1f}%".replace(".", ","),
     ))
     body_contents.append(_thuong_muc_box(f"Mức thưởng: {skdm['muc']}", f"{_fmt_money(skdm['thuong_du_kien'])} đ"))
-
     body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
-
     # ---- BIA-NUOC ----
     body_contents.extend(_thuong_section_title("Bia - Nước", "So với tháng 6/2026 · Size ST < 2 tỷ"))
     body_contents.append(_thuong_table_header())
@@ -489,9 +417,7 @@ def build_thuong_flex_message(ten_st, payload):
         f"{bianuoc['pct']:+.1f}%".replace(".", ","),
     ))
     body_contents.append(_thuong_muc_box(f"Mức thưởng: {bianuoc['muc']}", f"{_fmt_money(bianuoc['thuong_du_kien'])} đ"))
-
     body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
-
     # ---- C2 ----
     body_contents.extend(_thuong_section_title("Trà C2 (theo sản phẩm)", "500đ/chai (Freeze/Tắc/Sâm Cúc) · 1.000đ/chai (Olong 1L)"))
     body_contents.append({
@@ -515,9 +441,7 @@ def build_thuong_flex_message(ten_st, payload):
             ],
         })
     body_contents.append(_thuong_muc_box("Tổng thưởng C2 (dự kiến)", f"{_fmt_money(c2['tong_thuong_du_kien'])} đ"))
-
     body_contents.append({"type": "separator", "margin": "xl", "color": DIVIDER})
-
     # ---- TONG ----
     body_contents.append({
         "type": "box", "layout": "horizontal", "backgroundColor": GREEN, "cornerRadius": "10px",
@@ -527,7 +451,6 @@ def build_thuong_flex_message(ten_st, payload):
             {"type": "text", "text": f"{_fmt_money(payload['tong_thuong_du_kien'])} đ", "size": "lg", "weight": "bold", "color": "#FFFFFF", "flex": 5, "align": "end"},
         ],
     })
-
     contents = {
         "type": "bubble",
         "size": "giga",
@@ -545,12 +468,9 @@ def build_thuong_flex_message(ten_st, payload):
         },
     }
     return contents
-
-
 # ---------------------------------------------------------------------------
 # BÁO CÁO DOANH THU THỦY HẢI SẢN — dùng lại đúng layout "BÁO CÁO NGÀNH HÀNG"
 # ---------------------------------------------------------------------------
-
 def build_seafood_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, items, doanh_thu_tong, gia_tri_huy, du_kien_cuoi_thang):
     """items: list[(ten_sp, qty_text, pct_ban_nhap)] — dùng lại _category_section_table."""
     body_contents = [
@@ -587,12 +507,9 @@ def build_seafood_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, items, doanh_t
             "contents": body_contents,
         },
     }
-
-
 # ---------------------------------------------------------------------------
 # CÔNG VIỆC 1 — chi tiết HỦY TỒN + MMKK từng sản phẩm (đúng 1 ngày)
 # ---------------------------------------------------------------------------
-
 def _fresh_detail_section(title, grouped_items, empty_note):
     """grouped_items: list[(nganh_hang, [(ten_sp, qty_text), ...])], đã sắp theo
     Ngành hàng. Mỗi ngành hàng có tiêu đề nhỏ riêng, dưới là các dòng sản phẩm."""
@@ -600,7 +517,6 @@ def _fresh_detail_section(title, grouped_items, empty_note):
     if not grouped_items:
         contents.append({"type": "text", "text": empty_note, "size": "md", "color": GRAY, "margin": "sm", "wrap": True})
         return {"type": "box", "layout": "vertical", "margin": "lg", "contents": contents}
-
     for nganh_hang, sp_list in grouped_items:
         contents.append({
             "type": "text", "text": nganh_hang, "size": "sm", "weight": "bold",
@@ -618,8 +534,6 @@ def _fresh_detail_section(title, grouped_items, empty_note):
                 row["backgroundColor"] = ROW_ALT_BG
             contents.append(row)
     return {"type": "box", "layout": "vertical", "margin": "lg", "contents": contents}
-
-
 def build_fresh_detail_flex_message(ten_st, ngay_display, huy_groups, mmkk_groups, so_huy, so_mmkk):
     body_contents = [
         _fresh_detail_section(f"HỦY TỒN ({so_huy} sản phẩm)", huy_groups, "Không có hủy tồn ngày này"),
@@ -642,12 +556,9 @@ def build_fresh_detail_flex_message(ten_st, ngay_display, huy_groups, mmkk_group
             "contents": body_contents,
         },
     }
-
-
 # ---------------------------------------------------------------------------
 # CÔNG VIỆC 2 — tổng HỦY TỒN + MMKK theo nhóm lớn (khoảng nhiều ngày)
 # ---------------------------------------------------------------------------
-
 def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows):
     """nhom_rows: list[(nhom, huy_text, mmkk_text, tong_text)] — 4 nhóm lớn + Trứng."""
     table_rows = [{
@@ -673,7 +584,6 @@ def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows)
         if i % 2 == 1:
             row["backgroundColor"] = ROW_ALT_BG
         table_rows.append(row)
-
     return {
         "type": "bubble",
         "size": "giga",
@@ -690,12 +600,9 @@ def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows)
             "contents": table_rows,
         },
     }
-
-
 # ---------------------------------------------------------------------------
 # LỆNH "DTDK" - Doanh Thu Dự Kiến (theo tháng + tiến độ target năm)
 # ---------------------------------------------------------------------------
-
 def _progress_bar(pct):
     """Thanh tiến độ dạng box ngang (giả lập progress bar bằng flex ratio)."""
     p = max(0, min(100, round(pct)))
@@ -722,8 +629,6 @@ def _progress_bar(pct):
         "type": "box", "layout": "horizontal", "height": "10px",
         "spacing": "none", "margin": "sm", "contents": bar_contents,
     }
-
-
 def _target_section(label, target_value, remain_value, pct):
     return {
         "type": "box", "layout": "vertical", "backgroundColor": ROW_BG,
@@ -741,8 +646,6 @@ def _target_section(label, target_value, remain_value, pct):
             {"type": "text", "text": f"{pct:.2f}% hoàn thành", "size": "sm", "weight": "bold", "color": GREEN, "align": "end", "margin": "xs"},
         ],
     }
-
-
 def build_dtdk_flex_message(ten_st, thang_hien_tai_label, tong_hien_tai, tb_ngay,
                              du_kien_thang, month_rows, grand, target_nam, target_tang_them):
     """month_rows: list[(label, tong_thang)] — các tháng ĐÃ QUA (không gồm tháng hiện tại)."""
@@ -773,7 +676,6 @@ def build_dtdk_flex_message(ten_st, thang_hien_tai_label, tong_hien_tai, tb_ngay
             {"type": "text", "text": f"{_fmt_money(grand)} đ", "size": "sm", "weight": "bold", "color": BLACK, "flex": 6, "align": "end", "wrap": True},
         ],
     })
-
     if tong_hien_tai > 0:
         thang_hien_tai_box = {
             "type": "box", "layout": "vertical", "backgroundColor": ROW_BG,
@@ -799,12 +701,10 @@ def build_dtdk_flex_message(ten_st, thang_hien_tai_label, tong_hien_tai, tb_ngay
             "cornerRadius": "8px", "paddingAll": "10px", "margin": "sm",
             "contents": [{"type": "text", "text": "Chưa có dữ liệu tháng này", "size": "xs", "color": GRAY_LIGHT}],
         }
-
     pct_goc = (grand / target_nam * 100) if target_nam else 0
     pct_tang = (grand / target_tang_them * 100) if target_tang_them else 0
     remain_goc = target_nam - grand
     remain_tang = target_tang_them - grand
-
     body_contents = (
         [
             {"type": "text", "text": f"🗓️ {thang_hien_tai_label}", "size": "sm", "weight": "bold", "color": BLACK},
@@ -819,7 +719,6 @@ def build_dtdk_flex_message(ten_st, thang_hien_tai_label, tong_hien_tai, tb_ngay
             _target_section("Mục tiêu tăng thêm (+15%)", target_tang_them, remain_tang, pct_tang),
         ]
     )
-
     return {
         "type": "bubble",
         "size": "giga",
