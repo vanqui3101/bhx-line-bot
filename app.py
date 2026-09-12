@@ -72,6 +72,7 @@ import fresh_report
 import dtdk_report
 import storage
 import ai_assistant
+import thuong_freshfmcg
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
@@ -135,6 +136,11 @@ TD_COMMAND_PATTERN = re.compile(
 )
 DTDK_COMMAND_PATTERN = re.compile(
     r"^\s*dtdk\s*$", re.IGNORECASE
+)
+# TTFF — Tiến độ THƯỞNG Fresh/FMCG theo Base cố định (MỚI 12/09/2026, TÁCH
+# RIÊNG khỏi lệnh TD/THƯỞNG cũ). Gõ "TTFF" hoặc "tiến độ thưởng".
+TTFF_COMMAND_PATTERN = re.compile(
+    r"^\s*(ttff|ti[eế]n\s*đ[ộo]\s*th[uư][oở]ng)\s*$", re.IGNORECASE
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
@@ -861,6 +867,14 @@ def handle_file_message(event):
                 )
                 reply_text(messaging_api, event.reply_token, reply)
             elif file_type == "category":
+                # MỚI 12/09/2026: song song trích DT Fresh/FMCG theo ngày cho
+                # lệnh "TTFF" (tiến độ thưởng, tách riêng TD cũ) — không ảnh
+                # hưởng luồng MTKM/TD hiện có, lỗi ở đây không làm hỏng phần dưới.
+                try:
+                    so_ngay_ttff = thuong_freshfmcg.extract_and_save(tmp_path)
+                    print(f"[TTFF-DEBUG] da luu {so_ngay_ttff} ngay DT Fresh/FMCG")
+                except Exception:
+                    traceback.print_exc()
                 so_ngay = count_distinct_dates(tmp_path)
                 if so_ngay >= 2:
                     # File trai nhieu ngay (vd 01/08 -> hien tai) -> bao cao THUONG
@@ -1153,6 +1167,37 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo thưởng: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # Lệnh TTFF — TIẾN ĐỘ THƯỞNG FRESH/FMCG (MỚI 12/09/2026, Base cố định,
+        # TÁCH RIÊNG khỏi TD/THƯỞNG cũ). Dùng đúng 1 file "doanh thu chi tiết"
+        # đã gửi cho MTKM/TD — không cần gửi thêm file nào khác.
+        if TTFF_COMMAND_PATTERN.match(text):
+            try:
+                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
+            except Exception:
+                traceback.print_exc()
+            try:
+                ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
+                payload = thuong_freshfmcg.build_report_payload(ten_st)
+                if payload is None:
+                    push_text(messaging_api, target_id,
+                               "Chưa có dữ liệu cho báo cáo này. Anh gửi file Excel \"doanh thu chi tiết\" trước nhé.")
+                    return
+                bubble = thuong_freshfmcg.build_freshfmcg_flex_message(payload)
+                flex_message = FlexMessage(
+                    alt_text="Tiến độ thưởng Fresh & FMCG",
+                    contents=FlexContainer.from_dict(bubble),
+                )
+                messaging_api.push_message(
+                    PushMessageRequest(to=target_id, messages=[flex_message])
+                )
+                storage.save_last_command(target_id, "TTFF", _now_vn_time_str())
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo tiến độ thưởng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
