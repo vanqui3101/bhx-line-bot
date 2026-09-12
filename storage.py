@@ -85,6 +85,13 @@ def _connect():
             last_command_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS freshfmcg_daily (
+            ngay TEXT PRIMARY KEY,
+            fresh_dt REAL,
+            fmcg_dt REAL
+        )
+    """)
     return conn
 # ---------------------------------------------------------------------------
 # BÁO CÁO DOANH THU (giữ nguyên như code cũ)
@@ -606,5 +613,33 @@ def get_nhat_ky_nhan_vien(ngay, user_id):
         (ngay, user_id),
     )
     rows = cur.fetchall()
+    conn.close()
+    return rows
+# ---------------------------------------------------------------------------
+# DOANH THU FRESH/FMCG THEO NGÀY (MỚI 12/09/2026) - phục vụ lệnh "TTFF"
+# (tiến độ thưởng Fresh/FMCG theo Base cố định, TÁCH RIÊNG khỏi TD/THƯỞNG
+# cũ). Lưu theo NGÀY — gửi file mới CHỈ đè đúng những ngày có trong file đó,
+# các ngày khác giữ nguyên -> anh có thể gửi bổ sung dần, không cần gửi lại
+# từ đầu tháng.
+# ---------------------------------------------------------------------------
+def save_freshfmcg_daily(rows):
+    """rows: list dict {ngay, fresh_dt, fmcg_dt} — upsert theo ngày."""
+    conn = _connect()
+    with conn:
+        for r in rows:
+            conn.execute("""
+                INSERT INTO freshfmcg_daily (ngay, fresh_dt, fmcg_dt)
+                VALUES (:ngay, :fresh_dt, :fmcg_dt)
+                ON CONFLICT(ngay) DO UPDATE SET
+                    fresh_dt=excluded.fresh_dt,
+                    fmcg_dt=excluded.fmcg_dt
+            """, r)
+    conn.close()
+def get_freshfmcg_all():
+    """Trả về toàn bộ list dict {ngay, fresh_dt, fmcg_dt} đã lưu."""
+    conn = _connect()
+    cur = conn.execute("SELECT ngay, fresh_dt, fmcg_dt FROM freshfmcg_daily")
+    cols = [d[0] for d in cur.description]
+    rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
