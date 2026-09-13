@@ -63,6 +63,10 @@ _SO_SANH_2_NGAY_RE = re.compile(
     r"so\s*sanh.*?(?:ngay\s*)?(\d{1,2})(?:[/\-](\d{1,2})(?:[/\-](\d{2,4}))?)?"
     r"\s*(?:va|voi|,)\s*(?:ngay\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?"
 )
+# 1 NGÀY CỤ THỂ lẻ (không phải khoảng, không phải "N ngày trước") — vd
+# "hủy mmkk ngày 05/09", "hủy mmkk 5/9". (Mới 13/09/2026 — trước đó câu lệnh
+# kèm 1 ngày lẻ không khớp mẫu nào cả nên luôn bị rơi về mặc định "hôm qua".)
+_NGAY_DON_RE = re.compile(r"(?:ngay\s*)?(\d{1,2})[/\-](\d{1,2})(?:[/\-](\d{2,4}))?")
 def parse_date_request(text, today=None):
     """Phân tích câu lệnh tự do, trả về (mode, ngay_tu, ngay_den):
     - mode == "single": 1 ngày cụ thể (dùng cho Công việc 1 / Phân tích)
@@ -99,6 +103,17 @@ def parse_date_request(text, today=None):
         return "range", ngay_tu, ngay_den
     if "hom nay" in t:
         return "single", today, today
+    m = _NGAY_DON_RE.search(t)
+    if m:
+        d, mo, y = m.groups()
+        y = int(y) if y else today.year
+        if y < 100:
+            y += 2000
+        try:
+            ngay = date(y, int(mo), int(d))
+            return "single", ngay, ngay
+        except ValueError:
+            pass
     # Mặc định (kể cả khi câu chỉ có "hủy mmkk" không kèm ngày): hôm qua
     y = today - timedelta(days=1)
     return "single", y, y
