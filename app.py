@@ -176,6 +176,49 @@ NHAN_XET_TRIGGER = re.compile(r"nhan\s*xet")
 TEN_NHAN_XET_RE = re.compile(r"\b(Mi|Quyên|Sang|Thi|Ánh|Linh|Son)\b")
 def _co_tag_bot(text):
     return BOT_TAG_TEXT_KD in _bo_dau(text)
+_BOT_USER_ID_CACHE = {"id": None}
+def _lay_bot_user_id():
+    """Lấy user_id THẬT của chính bot (TROLY) trên LINE, để nhận diện khi anh
+    dùng tính năng @ CHỌN TÊN BOT thật trong nhóm (tag thật), thay vì phải gõ
+    tay cụm "Quí 227216". Gọi 1 lần rồi cache lại (user_id của bot không đổi)."""
+    if _BOT_USER_ID_CACHE["id"]:
+        return _BOT_USER_ID_CACHE["id"]
+    try:
+        resp = requests.get(
+            "https://api.line.me/v2/bot/info",
+            headers={"Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"},
+            timeout=5,
+        )
+        uid = (resp.json() or {}).get("userId")
+        if uid:
+            _BOT_USER_ID_CACHE["id"] = uid
+        return uid
+    except Exception:
+        traceback.print_exc()
+        return None
+def _da_tag_bot_thuc_su(event, text):
+    """"Tag bot" = ĐÚNG 1 trong 2 cách sau (MỚI 13/09/2026 — trước đây CHỈ
+    nhận cách 1, anh Quí phản hồi không muốn gõ tay tên/mã của anh, chỉ muốn
+    @ chọn tên bot thật cho gọn):
+    1. Gõ tay cụm "Quí 227216" (cách cũ, vẫn giữ, không phá lệnh cũ nếu anh
+       đã quen gõ kiểu này).
+    2. Dùng tính năng @ chọn tên bot (TROLY) THẬT trong LINE — LINE trả về
+       user_id của bot trong event.message.mention.mentionees, so khớp với
+       user_id thật của bot lấy qua API."""
+    if _co_tag_bot(text):
+        return True
+    mention_obj = getattr(event.message, "mention", None)
+    mentionees = getattr(mention_obj, "mentionees", None) if mention_obj else None
+    if not mentionees:
+        return False
+    bot_uid = _lay_bot_user_id()
+    if not bot_uid:
+        return False
+    for m in mentionees:
+        uid = getattr(m, "user_id", None) or getattr(m, "userId", None)
+        if uid == bot_uid:
+            return True
+    return False
 # ---- TROLY TRẢ LỜI TỰ DO (MỚI) ----
 # Dùng để cắt bỏ đoạn tag tên bot ra khỏi câu hỏi trước khi gửi cho AI, cho
 # câu hỏi sạch sẽ hơn (không bắt buộc, chỉ để câu hỏi gọn hơn khi đưa vào AI).
@@ -983,9 +1026,10 @@ def handle_image_message(event):
 def handle_text_message(event):
     text = (event.message.text or "").strip()
     text_kd = _bo_dau(text)  # bản không dấu, dùng cho các lệnh mới (mục "Lệnh mới" phía dưới)
+    da_tag_bot = _da_tag_bot_thuc_su(event, text)
     print(f"[FRESH-DEBUG] text raw = {text!r}")
     print(f"[FRESH-DEBUG] text_kd (khong dau) = {text_kd!r}")
-    print(f"[FRESH-DEBUG] co_tag_bot = {_co_tag_bot(text)} | huy_mmkk_match = {bool(HUY_MMKK_TRIGGER.search(text_kd))} "
+    print(f"[FRESH-DEBUG] da_tag_bot = {da_tag_bot} | huy_mmkk_match = {bool(HUY_MMKK_TRIGGER.search(text_kd))} "
           f"| phan_tich_match = {bool(PHAN_TICH_TRIGGER.search(text_kd))} | seafood_match = {bool(SEAFOOD_TRIGGER.search(text_kd))}")
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
@@ -1208,10 +1252,15 @@ def handle_text_message(event):
         # đặt cạnh nhau). Trong nhóm: bắt buộc tag tên bot. Chat riêng 1-1:
         # không cần tag (giống DT/MTKM) — trước đây lệnh này CHỈ hoạt động
         # trong nhóm, hỏi riêng 1-1 sẽ bị rớt xuống luồng AI trả lời tự do.
-        if HUY_MMKK_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
+        # 13/09/2026: cho phép "so sánh ngày X và Y" kích hoạt CHỈ CẦN có tag
+        # bot (trong nhóm) mà KHÔNG cần thêm chữ "hủy mmkk" — trước đây phải
+        # gõ đủ "hủy mmkk so sánh ngày..." mới khớp, anh Quí phản hồi muốn gõ
+        # tag xong là ra luôn cho gọn.
+        _co_so_sanh_pre, _ngay_a_pre, _ngay_b_pre = fresh_report.parse_so_sanh_2_ngay(text)
+        if (HUY_MMKK_TRIGGER.search(text_kd) or _co_so_sanh_pre) and (source_type != "group" or da_tag_bot):
             try:
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
-                co_so_sanh, ngay_a, ngay_b = fresh_report.parse_so_sanh_2_ngay(text)
+                co_so_sanh, ngay_a, ngay_b = _co_so_sanh_pre, _ngay_a_pre, _ngay_b_pre
                 if co_so_sanh:
                     ket_qua = fresh_report.build_so_sanh_2_ngay(ngay_a, ngay_b)
                     if ket_qua is None:
@@ -1246,7 +1295,7 @@ def handle_text_message(event):
                     traceback.print_exc()
             return
         # Lệnh DOANH THU THỦY HẢI SẢN — tương tự, cho phép cả chat riêng 1-1.
-        if SEAFOOD_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
+        if SEAFOOD_TRIGGER.search(text_kd) and (source_type != "group" or da_tag_bot):
             try:
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
                 bubble = fresh_report.build_doanh_thu_thuy_hai_san(ten_st)
@@ -1271,7 +1320,7 @@ def handle_text_message(event):
         #    (dùng Claude, không cần gửi ảnh/file gì thêm).
         # 3. Không khớp 2 trường hợp trên -> quay lại luồng cũ: bắt buộc
         #    phải gõ "hủy mmkk <ngày>" trước, có kết quả rồi mới phân tích.
-        if (PHAN_TICH_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text))
+        if (PHAN_TICH_TRIGGER.search(text_kd) and (source_type != "group" or da_tag_bot)
                 and not HUY_MMKK_TRIGGER.search(text_kd)):
             anh_data = _lay_anh_gan_nhat(target_id)
             if anh_data is not None:
@@ -1331,7 +1380,7 @@ def handle_text_message(event):
         # 1 bạn nhân viên + có ý "nhận xét" (VD "nhận xét giúp anh Quyên hôm
         # nay") -> bot so mục tiêu bạn đó được giao qua bài phân line với
         # báo cáo thực tế (nhật ký tin nhắn bạn đó tự gửi trong nhóm).
-        if NHAN_XET_TRIGGER.search(text_kd) and (source_type != "group" or _co_tag_bot(text)):
+        if NHAN_XET_TRIGGER.search(text_kd) and (source_type != "group" or da_tag_bot):
             try:
                 ten_match = TEN_NHAN_XET_RE.search(text)
                 if not ten_match:
@@ -1383,7 +1432,7 @@ def handle_text_message(event):
         # Trong nhóm: bắt buộc phải tag tên bot mới trả lời (tránh bot xen
         # vào chat thường của mọi người). Chat riêng 1-1 với bot: hỏi gì
         # cũng được, không cần tag vì đã là nhắn riêng cho bot rồi.
-        if source_type == "group" and not _co_tag_bot(text):
+        if source_type == "group" and not da_tag_bot:
             return
         cau_hoi = BOT_NAME_STRIP_PATTERN.sub("", text).strip()
         if not cau_hoi:
