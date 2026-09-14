@@ -560,30 +560,45 @@ def build_fresh_detail_flex_message(ten_st, ngay_display, huy_groups, mmkk_group
 # CÔNG VIỆC 2 — tổng HỦY TỒN + MMKK theo nhóm lớn (khoảng nhiều ngày)
 # ---------------------------------------------------------------------------
 def build_fresh_group_flex_message(ten_st, ngay_bd, ngay_kt, so_ngay, nhom_rows):
-    """nhom_rows: list[(nhom, huy_text, mmkk_text, tong_text)] — 4 nhóm lớn + Trứng."""
+    """nhom_rows: list[(nhom, nhap_text, huy_text, mmkk_text, tong_text, pct_ban_text, pct_mmkk_text)]
+    — 4 nhóm lớn + Trứng. (13/09/2026: thêm cột Nhập + 2 dòng tỉ lệ % Bán/Nhập
+    và % MMKK/Nhập theo yêu cầu anh Quí — tách thành 2 dòng/nhóm thay vì nhồi
+    hết vào 1 hàng ngang cho đỡ chật màn hình điện thoại.)"""
     table_rows = [{
         "type": "box", "layout": "horizontal", "backgroundColor": TABLE_HEAD_BG,
         "paddingAll": "8px", "margin": "sm",
         "contents": [
-            {"type": "text", "text": "Nhóm", "size": "sm", "weight": "bold", "color": BLACK, "flex": 4},
-            {"type": "text", "text": "Hủy tồn", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
-            {"type": "text", "text": "MMKK", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "center"},
-            {"type": "text", "text": "Tổng", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3, "align": "end"},
+            {"type": "text", "text": "Nhóm", "size": "sm", "weight": "bold", "color": BLACK, "flex": 3},
+            {"type": "text", "text": "Nhập", "size": "sm", "weight": "bold", "color": BLACK, "flex": 2, "align": "center"},
+            {"type": "text", "text": "Hủy tồn", "size": "sm", "weight": "bold", "color": BLACK, "flex": 2, "align": "center"},
+            {"type": "text", "text": "MMKK", "size": "sm", "weight": "bold", "color": BLACK, "flex": 2, "align": "center"},
+            {"type": "text", "text": "Tổng", "size": "sm", "weight": "bold", "color": BLACK, "flex": 2, "align": "end"},
         ],
     }]
-    for i, (nhom, huy_text, mmkk_text, tong_text) in enumerate(nhom_rows):
-        row = {
+    for i, (nhom, nhap_text, huy_text, mmkk_text, tong_text, pct_ban_text, pct_mmkk_text) in enumerate(nhom_rows):
+        bg = ROW_ALT_BG if i % 2 == 1 else None
+        data_row = {
             "type": "box", "layout": "horizontal", "paddingAll": "8px",
             "contents": [
-                {"type": "text", "text": nhom, "size": "sm", "color": BLACK, "flex": 4, "wrap": True},
-                {"type": "text", "text": huy_text, "size": "xs", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
-                {"type": "text", "text": mmkk_text, "size": "xs", "weight": "bold", "color": RED, "flex": 3, "align": "center", "wrap": True},
-                {"type": "text", "text": tong_text, "size": "xs", "weight": "bold", "color": BLACK, "flex": 3, "align": "end", "wrap": True},
+                {"type": "text", "text": nhom, "size": "sm", "color": BLACK, "flex": 3, "wrap": True},
+                {"type": "text", "text": nhap_text, "size": "xs", "weight": "bold", "color": BLACK, "flex": 2, "align": "center", "wrap": True},
+                {"type": "text", "text": huy_text, "size": "xs", "weight": "bold", "color": RED, "flex": 2, "align": "center", "wrap": True},
+                {"type": "text", "text": mmkk_text, "size": "xs", "weight": "bold", "color": RED, "flex": 2, "align": "center", "wrap": True},
+                {"type": "text", "text": tong_text, "size": "xs", "weight": "bold", "color": BLACK, "flex": 2, "align": "end", "wrap": True},
             ],
         }
-        if i % 2 == 1:
-            row["backgroundColor"] = ROW_ALT_BG
-        table_rows.append(row)
+        ratio_row = {
+            "type": "box", "layout": "horizontal", "paddingAll": "8px", "paddingTop": "0px",
+            "contents": [
+                {"type": "text", "text": f"Bán/Nhập: {pct_ban_text}    MMKK/Nhập: {pct_mmkk_text}",
+                 "size": "xxs", "color": GRAY_LIGHT, "flex": 1, "wrap": True},
+            ],
+        }
+        if bg:
+            data_row["backgroundColor"] = bg
+            ratio_row["backgroundColor"] = bg
+        table_rows.append(data_row)
+        table_rows.append(ratio_row)
     return {
         "type": "bubble",
         "size": "giga",
