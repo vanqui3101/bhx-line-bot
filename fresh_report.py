@@ -203,6 +203,8 @@ def build_cong_viec_2(ten_st, ngay_tu, ngay_den):
     rows = storage.get_fresh_records_range(_ngay_str(ngay_tu), _ngay_str(ngay_den))
     if not rows:
         return None
+    nhap_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
+    xuat_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
     huy_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
     mmkk_by_nhom = {n: 0.0 for n in NHOM_LON_THU_TU}
     huy_don_vi = {"Rau củ": "kg", "Trái cây": "kg", "Thịt": "kg", "Thủy hải sản": "kg", "Trứng": "hộp"}
@@ -212,24 +214,37 @@ def build_cong_viec_2(ten_st, ngay_tu, ngay_den):
             continue
         loai_tru = r["ten_sp"].strip().upper() in SAN_PHAM_LOAI_TRU_HUY_TON
         if nhom == "Trứng":
+            # Nhập/Bán KHÔNG loại trừ (giống MMKK) — chỉ hủy tồn mới loại trừ
+            # heo nửa mảnh, vì đó là số bất thường khi hủy chứ không ảnh
+            # hưởng đến số nhập/bán.
+            nhap_by_nhom[nhom] += r.get("sl_nhap") or 0
+            xuat_by_nhom[nhom] += r.get("sl_xuat") or 0
             if not loai_tru:
                 huy_by_nhom[nhom] += r.get("sl_huy") or 0
             mmkk_by_nhom[nhom] += r.get("sl_mmkk") or 0
         else:
+            nhap_by_nhom[nhom] += _kg(r, "sl_nhap")
+            xuat_by_nhom[nhom] += _kg(r, "sl_xuat")
             if not loai_tru:
                 huy_by_nhom[nhom] += _kg(r, "sl_huy")
             mmkk_by_nhom[nhom] += _kg(r, "sl_mmkk")
     nhom_rows = []
     for nhom in NHOM_LON_THU_TU:
         dv = huy_don_vi[nhom]
+        nhap_val = round(nhap_by_nhom[nhom], 2)
+        xuat_val = round(xuat_by_nhom[nhom], 2)
         huy_val = round(huy_by_nhom[nhom], 2)
         mmkk_val = round(mmkk_by_nhom[nhom], 2)
         tong_val = round(huy_val + mmkk_val, 2)
-        if dv == "kg":
-            huy_text, mmkk_text, tong_text = f"{huy_val:g} kg", f"{mmkk_val:g} kg", f"{tong_val:g} kg"
-        else:
-            huy_text, mmkk_text, tong_text = f"{huy_val:g} hộp", f"{mmkk_val:g} hộp", f"{tong_val:g} hộp"
-        nhom_rows.append((nhom, huy_text, mmkk_text, tong_text))
+        dv_text = "kg" if dv == "kg" else "hộp"
+        nhap_text = f"{nhap_val:g} {dv_text}"
+        huy_text, mmkk_text, tong_text = f"{huy_val:g} {dv_text}", f"{mmkk_val:g} {dv_text}", f"{tong_val:g} {dv_text}"
+        # % Bán/Nhập và % MMKK/Nhập — dựa trên tổng nhập cùng nhóm, cùng kỳ.
+        pct_ban = (xuat_val / nhap_val * 100) if nhap_val > 0 else None
+        pct_mmkk = (mmkk_val / nhap_val * 100) if nhap_val > 0 else None
+        pct_ban_text = f"{pct_ban:.1f}%" if pct_ban is not None else "—"
+        pct_mmkk_text = f"{pct_mmkk:.1f}%" if pct_mmkk is not None else "—"
+        nhom_rows.append((nhom, nhap_text, huy_text, mmkk_text, tong_text, pct_ban_text, pct_mmkk_text))
     so_ngay = (ngay_den - ngay_tu).days + 1
     return build_fresh_group_flex_message(ten_st, _fmt_dm(ngay_tu), _fmt_dm(ngay_den), so_ngay, nhom_rows)
 # ---------------------------------------------------------------------------
