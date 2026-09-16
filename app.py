@@ -73,9 +73,14 @@ import dtdk_report
 import storage
 import ai_assistant
 import thuong_freshfmcg
+import gdrive_reader
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
+# MỚI (16/09/2026): thư mục Google Drive cố định để bot tự kiểm tra file mới
+# theo lịch (xem check_google_drive_for_new_files phía dưới). Để trống thì
+# tính năng này tự tắt, không ảnh hưởng gì tới phần còn lại của bot.
+GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 # Hỗ trợ NHIỀU nhóm cùng lúc cho các tính năng tự động gửi/nhắc (phân line,
 # lịch hỗ trợ...): trên Railway, biến GROUP_ID có thể để 1 ID (như cũ) hoặc
 # nhiều ID cách nhau bằng dấu phẩy, VD: "Cxxxx1,Cxxxx2". Mọi nơi tự động gửi
@@ -800,6 +805,10 @@ scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h"
 # FMCG chiều -> 19h (nội dung cố định)
 scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
                    CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
+# TỰ ĐỘNG KIỂM TRA GOOGLE DRIVE (MỚI 16/09/2026) — mỗi 4 tiếng 1 lần
+# (2h/6h/10h/14h/18h/22h giờ VN), tự tắt nếu chưa cấu hình GOOGLE_DRIVE_FOLDER_ID.
+scheduler.add_job(check_google_drive_for_new_files,
+                   CronTrigger(hour="2,6,10,14,18,22", minute=5, timezone=_TZ_VN_SCHEDULER))
 # ---- LỊCH TEST KHẨN CẤP (tạm thời, để debug ngay hôm nay) ----
 # Bắt đầu 15h40, lặp lại mỗi 35 phút — dùng đúng nội dung/dữ liệu ca chiều
 # THU NGÂN+FRESH thật, chỉ khác là dùng slot-key riêng mỗi lần nên không bị
@@ -866,6 +875,122 @@ except Exception:
 # ---------------------------------------------------------------------------
 # Nhận file Excel: chỉ LƯU DỮ LIỆU + xác nhận, KHÔNG tự động gửi báo cáo
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# TỰ ĐỘNG NẠP FILE TỪ GOOGLE DRIVE (MỚI 16/09/2026)
+# Dùng lại ĐÚNG logic đọc/lưu như khi anh gửi file tay vào bot
+# (xem handle_file_message bên dưới), chỉ khác nguồn file (Drive thay vì
+# LINE) và cách báo kết quả (nhắn chủ động vào nhóm thay vì reply tin nhắn).
+# Viết thành hàm riêng (không sửa handle_file_message) để không ảnh hưởng
+# tới tính năng gửi file tay đang chạy ổn định.
+# ---------------------------------------------------------------------------
+def _process_drive_file(tmp_path, file_name):
+    """Đọc + lưu 1 file Excel đã tải về từ Drive. Trả về (thanh_cong: bool, noi_dung_thong_bao: str)."""
+    try:
+        if is_ca_schedule_file(tmp_path):
+            ca_data = read_ca_schedule(tmp_path)
+            for ngay, roster in ca_data.items():
+                storage.save_ca_schedule(ngay, roster)
+            return True, f"✅ [Tự động từ Drive] Đã lưu LỊCH PHÂN CA từ file \"{file_name}\" ({len(ca_data)} ngày)."
+        if is_schedule_file(tmp_path):
+            schedule_rows = read_schedule_rows(tmp_path)
+            storage.save_support_schedule_rows(schedule_rows)
+            return True, (f"✅ [Tự động từ Drive] Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC từ file "
+                          f"\"{file_name}\" ({len(schedule_rows)} dòng).")
+        file_type = detect_file_type(tmp_path)
+        if file_type == "revenue":
+            date_str, rows = read_all_rows(tmp_path)
+            storage.save_records(rows)
+            storage.save_snapshot_time(date_str, _now_vn_time_str())
+            date_display = _dt.strptime(date_str, "%Y-%m-%d").strftime("%d/%m/%Y")
+            total = sum((r["dt_offline"] or 0) + (r["dt_online"] or 0) for r in rows)
+            total_str = f"{total:,.0f}".replace(",", ".")
+            return True, (f"✅ [Tự động từ Drive] Đã lưu DOANH THU ngày {date_display} ({len(rows)} dòng).\n"
+                          f"Tổng doanh thu: {total_str} đ")
+        elif file_type == "category":
+            try:
+                so_ngay_ttff = thuong_freshfmcg.extract_and_save(tmp_path)
+                print(f"[DRIVE-DEBUG] da luu {so_ngay_ttff} ngay DT Fresh/FMCG")
+            except Exception:
+                traceback.print_exc()
+            so_ngay = count_distinct_dates(tmp_path)
+            if so_ngay >= 2:
+                thuong_payload = read_thuong_period_rows(tmp_path)
+                storage.save_thuong_report(thuong_payload["ten_st"], thuong_payload, _now_vn_time_str())
+                mtkm_payload = read_category_rows(tmp_path, filter_date=thuong_payload["ngay_ket_thuc"])
+                storage.save_category_report(
+                    mtkm_payload["ngay"], mtkm_payload["ten_st"], mtkm_payload, _now_vn_time_str()
+                )
+                ngay_bd_disp = _dt.strptime(thuong_payload["ngay_bat_dau"], "%Y-%m-%d").strftime("%d/%m")
+                ngay_kt_disp = _dt.strptime(thuong_payload["ngay_ket_thuc"], "%Y-%m-%d").strftime("%d/%m")
+                return True, (f"✅ [Tự động từ Drive] Đã lưu THƯỞNG ({thuong_payload['so_ngay_da_qua']} ngày, "
+                              f"{ngay_bd_disp} - {ngay_kt_disp}) và cập nhật MTKM cho ngày {ngay_kt_disp}.")
+            else:
+                payload = read_category_rows(tmp_path)
+                storage.save_category_report(
+                    payload["ngay"], payload["ten_st"], payload, _now_vn_time_str()
+                )
+                date_display = _dt.strptime(payload["ngay"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                return True, f"✅ [Tự động từ Drive] Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}."
+        elif file_type == "stock":
+            stock_payload = read_stock_rows(tmp_path)
+            storage.save_stock_snapshot(
+                stock_payload["ten_st"], stock_payload, _now_vn_time_str()
+            )
+            so_sp = len(stock_payload["ton_kho_map"])
+            return True, f"✅ [Tự động từ Drive] Đã lưu dữ liệu TỒN KHO cho {so_sp} sản phẩm."
+        elif file_type == "fresh":
+            fresh_rows = read_fresh_rows(tmp_path)
+            storage.save_fresh_records(fresh_rows)
+            ngay_set = sorted({r["ngay"] for r in fresh_rows})
+            ngay_bd_disp = _dt.strptime(ngay_set[0], "%Y-%m-%d").strftime("%d/%m/%Y")
+            ngay_kt_disp = _dt.strptime(ngay_set[-1], "%Y-%m-%d").strftime("%d/%m/%Y")
+            return True, (f"✅ [Tự động từ Drive] Đã lưu HỦY TỒN + MMKK ({len(ngay_set)} ngày, "
+                          f"{ngay_bd_disp} - {ngay_kt_disp}), {len(fresh_rows)} dòng, từ file \"{file_name}\".")
+        else:
+            return False, f"⚠️ [Drive] Không nhận diện được loại file \"{file_name}\", bot bỏ qua file này."
+    except Exception as e:
+        traceback.print_exc()
+        return False, f"⚠️ [Drive] Lỗi khi xử lý file \"{file_name}\": {e}"
+def check_google_drive_for_new_files():
+    """Chạy theo lịch (xem scheduler.add_job phía dưới): kiểm tra thư mục
+    Drive GOOGLE_DRIVE_FOLDER_ID, tải file MỚI (chưa xử lý lần nào, hoặc bị
+    sửa lại sau lần xử lý trước) về nạp vào bot, rồi nhắn thông báo vào nhóm."""
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        return
+    try:
+        files = gdrive_reader.list_files_in_folder(GOOGLE_DRIVE_FOLDER_ID)
+    except Exception:
+        print("[DRIVE-DEBUG] Loi khi lay danh sach file tu Drive:")
+        traceback.print_exc()
+        return
+    print(f"[DRIVE-DEBUG] tim thay {len(files)} file .xlsx/.xlsm trong thu muc Drive")
+    for f in files:
+        file_id = f["id"]
+        file_name = f["name"]
+        modified_time = f["modifiedTime"]
+        if storage.is_drive_file_processed(file_id, modified_time):
+            continue
+        print(f"[DRIVE-DEBUG] file moi: {file_name} ({file_id})")
+        tmp_path = os.path.join(TMP_DIR, f"drive_{uuid.uuid4().hex}.xlsx")
+        try:
+            gdrive_reader.download_file(file_id, tmp_path)
+            ok, message = _process_drive_file(tmp_path, file_name)
+            storage.mark_drive_file_processed(file_id, file_name, modified_time)
+            if GROUP_IDS:
+                with ApiClient(configuration) as api_client:
+                    messaging_api = MessagingApi(api_client)
+                    for gid in GROUP_IDS:
+                        try:
+                            push_text(messaging_api, gid, message)
+                        except Exception:
+                            traceback.print_exc()
+        except Exception:
+            print(f"[DRIVE-DEBUG] Loi khi tai/xu ly file {file_name}:")
+            traceback.print_exc()
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+DRIVE_CHECK_COMMAND_PATTERN = re.compile(r"^\s*kiem\s*tra\s*drive\s*$", re.IGNORECASE)
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file_message(event):
     message_id = event.message.id
@@ -1127,6 +1252,20 @@ def handle_text_message(event):
                 reply_text(messaging_api, event.reply_token, f"Group ID của nhóm này:\n{event.source.group_id}")
             else:
                 reply_text(messaging_api, event.reply_token, "Lệnh này chỉ dùng được trong nhóm (group) nhé anh.")
+            return
+        # Lệnh "kiểm tra drive" (MỚI 16/09/2026) — chạy tay ngay lập tức thay vì
+        # đợi tới lịch 4 tiếng/lần, dùng để kiểm tra tính năng tự nạp Drive.
+        if DRIVE_CHECK_COMMAND_PATTERN.match(text_kd):
+            if not GOOGLE_DRIVE_FOLDER_ID:
+                reply_text(messaging_api, event.reply_token,
+                           "Chưa cấu hình GOOGLE_DRIVE_FOLDER_ID trên Railway, chưa bật được tính năng này.")
+                return
+            reply_text(messaging_api, event.reply_token, "Em kiểm tra thư mục Drive ngay đây ạ...")
+            try:
+                check_google_drive_for_new_files()
+            except Exception as e:
+                traceback.print_exc()
+                push_text(messaging_api, target_id, f"Có lỗi khi kiểm tra Drive: {e}")
             return
         # Lệnh DT — báo cáo doanh thu
         if DT_COMMAND_PATTERN.match(text):
