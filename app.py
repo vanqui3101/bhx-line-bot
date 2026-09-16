@@ -952,18 +952,22 @@ def _process_drive_file(tmp_path, file_name):
         traceback.print_exc()
         return False, f"⚠️ [Drive] Lỗi khi xử lý file \"{file_name}\": {e}"
 def check_google_drive_for_new_files():
-    """Chạy theo lịch (xem scheduler.add_job phía dưới): kiểm tra thư mục
-    Drive GOOGLE_DRIVE_FOLDER_ID, tải file MỚI (chưa xử lý lần nào, hoặc bị
-    sửa lại sau lần xử lý trước) về nạp vào bot, rồi nhắn thông báo vào nhóm."""
+    """Chạy theo lịch (xem scheduler.add_job phía dưới) hoặc theo lệnh tay
+    "kiểm tra Drive": kiểm tra thư mục Drive GOOGLE_DRIVE_FOLDER_ID, tải file
+    MỚI (chưa xử lý lần nào, hoặc bị sửa lại sau lần xử lý trước) về nạp vào
+    bot. KHÔNG tự nhắn gì vào nhóm/chat (chỉ ghi log Railway) — nếu gõ lệnh
+    tay thì nơi gọi hàm này (handle_text_message) tự lo việc trả lời.
+    Trả về số file đã nạp thành công trong lần chạy này."""
     if not GOOGLE_DRIVE_FOLDER_ID:
-        return
+        return 0
     try:
         files = gdrive_reader.list_files_in_folder(GOOGLE_DRIVE_FOLDER_ID)
     except Exception:
         print("[DRIVE-DEBUG] Loi khi lay danh sach file tu Drive:")
         traceback.print_exc()
-        return
+        return 0
     print(f"[DRIVE-DEBUG] tim thay {len(files)} file .xlsx/.xlsm trong thu muc Drive")
+    so_file_da_nap = 0
     for f in files:
         file_id = f["id"]
         file_name = f["name"]
@@ -976,20 +980,16 @@ def check_google_drive_for_new_files():
             gdrive_reader.download_file(file_id, tmp_path)
             ok, message = _process_drive_file(tmp_path, file_name)
             storage.mark_drive_file_processed(file_id, file_name, modified_time)
-            if GROUP_IDS:
-                with ApiClient(configuration) as api_client:
-                    messaging_api = MessagingApi(api_client)
-                    for gid in GROUP_IDS:
-                        try:
-                            push_text(messaging_api, gid, message)
-                        except Exception:
-                            traceback.print_exc()
+            print(f"[DRIVE-DEBUG] {message}")
+            if ok:
+                so_file_da_nap += 1
         except Exception:
             print(f"[DRIVE-DEBUG] Loi khi tai/xu ly file {file_name}:")
             traceback.print_exc()
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+    return so_file_da_nap
 DRIVE_CHECK_COMMAND_PATTERN = re.compile(r"^\s*kiem\s*tra\s*drive\s*$", re.IGNORECASE)
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file_message(event):
@@ -1253,19 +1253,21 @@ def handle_text_message(event):
             else:
                 reply_text(messaging_api, event.reply_token, "Lệnh này chỉ dùng được trong nhóm (group) nhé anh.")
             return
-        # Lệnh "kiểm tra drive" (MỚI 16/09/2026) — chạy tay ngay lập tức thay vì
-        # đợi tới lịch 4 tiếng/lần, dùng để kiểm tra tính năng tự nạp Drive.
+        # Lệnh "kiểm tra drive" (16/09/2026, ĐƠN GIẢN HOÁ THEO YÊU CẦU ANH QUÍ) —
+        # chạy tay ngay lập tức thay vì đợi tới lịch 4 tiếng/lần. Chỉ trả lời
+        # ĐÚNG nơi anh gõ lệnh (chat riêng hoặc nhóm), KHÔNG tự nhắn gì thêm
+        # vào nhóm/chat khác. Không kể chi tiết đã nạp file gì, chỉ báo xong.
         if DRIVE_CHECK_COMMAND_PATTERN.match(text_kd):
             if not GOOGLE_DRIVE_FOLDER_ID:
                 reply_text(messaging_api, event.reply_token,
                            "Chưa cấu hình GOOGLE_DRIVE_FOLDER_ID trên Railway, chưa bật được tính năng này.")
                 return
-            reply_text(messaging_api, event.reply_token, "Em kiểm tra thư mục Drive ngay đây ạ...")
             try:
                 check_google_drive_for_new_files()
+                reply_text(messaging_api, event.reply_token, "Dạ em kiểm tra xong ạ")
             except Exception as e:
                 traceback.print_exc()
-                push_text(messaging_api, target_id, f"Có lỗi khi kiểm tra Drive: {e}")
+                reply_text(messaging_api, event.reply_token, f"Có lỗi khi kiểm tra Drive: {e}")
             return
         # Lệnh DT — báo cáo doanh thu
         if DT_COMMAND_PATTERN.match(text):
