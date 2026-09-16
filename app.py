@@ -807,7 +807,7 @@ scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19
                    CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
 # TỰ ĐỘNG KIỂM TRA GOOGLE DRIVE (MỚI 16/09/2026) — mỗi 4 tiếng 1 lần
 # (2h/6h/10h/14h/18h/22h giờ VN), tự tắt nếu chưa cấu hình GOOGLE_DRIVE_FOLDER_ID.
-scheduler.add_job(check_google_drive_for_new_files,
+scheduler.add_job(lambda: check_google_drive_for_new_files(),
                    CronTrigger(hour="2,6,10,14,18,22", minute=5, timezone=_TZ_VN_SCHEDULER))
 # ---- LỊCH TEST KHẨN CẤP (tạm thời, để debug ngay hôm nay) ----
 # Bắt đầu 15h40, lặp lại mỗi 35 phút — dùng đúng nội dung/dữ liệu ca chiều
