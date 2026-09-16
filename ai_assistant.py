@@ -400,7 +400,7 @@ def phan_tich_du_lieu(tieu_de, noi_dung, target_id=None):
         system_prompt = _build_system_prompt_phan_tich_du_lieu()
         body = {
             "model": ANTHROPIC_MODEL,
-            "max_tokens": 1000,
+            "max_tokens": 1600,
             "system": system_prompt,
             "messages": [{
                 "role": "user",
