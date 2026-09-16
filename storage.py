@@ -92,6 +92,14 @@ def _connect():
             fmcg_dt REAL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS drive_processed_files (
+            file_id TEXT PRIMARY KEY,
+            file_name TEXT,
+            modified_time TEXT,
+            processed_at TEXT
+        )
+    """)
     return conn
 # ---------------------------------------------------------------------------
 # BÁO CÁO DOANH THU (giữ nguyên như code cũ)
@@ -643,3 +651,31 @@ def get_freshfmcg_all():
     rows = [dict(zip(cols, row)) for row in cur.fetchall()]
     conn.close()
     return rows
+# ---------------------------------------------------------------------------
+# FILE GOOGLE DRIVE ĐÃ XỬ LÝ (MỚI 16/09/2026) — dùng cho tính năng bot tự
+# kiểm tra 1 thư mục Drive cố định, tải file mới về nạp tự động, tránh
+# nạp trùng 1 file 2 lần (so theo file_id + modified_time: nếu ai đó sửa
+# lại nội dung file cũ trên Drive, modified_time đổi -> vẫn coi là "mới").
+# ---------------------------------------------------------------------------
+def is_drive_file_processed(file_id, modified_time):
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT modified_time FROM drive_processed_files WHERE file_id = ?", (file_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return False
+    return row[0] == modified_time
+def mark_drive_file_processed(file_id, file_name, modified_time):
+    conn = _connect()
+    with conn:
+        conn.execute("""
+            INSERT INTO drive_processed_files (file_id, file_name, modified_time, processed_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(file_id) DO UPDATE SET
+                file_name=excluded.file_name,
+                modified_time=excluded.modified_time,
+                processed_at=excluded.processed_at
+        """, (file_id, file_name, modified_time, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.close()
