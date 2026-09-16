@@ -459,6 +459,57 @@ def phan_tich_thuong(target_id=None):
     return phan_tich_du_lieu("Báo cáo thưởng (TD/THƯỞNG)", noi_dung, target_id=target_id)
 
 
+def _context_fresh_khoang_ngay(ngay_tu, ngay_den):
+    """Liệt kê số liệu Hủy tồn + MMKK THEO TỪNG NGÀY, CHỈ trong đúng khoảng
+    [ngay_tu, ngay_den] đã yêu cầu (khác _context_fresh() ở trên — hàm đó
+    luôn lấy 45 ngày GẦN NHẤT bất kể anh hỏi khoảng nào, dùng cho chat tự do)."""
+    from datetime import timedelta as _td_local
+    dong = [f"Số liệu Hủy tồn + MMKK từng ngày, {ngay_tu.strftime('%d/%m/%Y')} - {ngay_den.strftime('%d/%m/%Y')} "
+            f"(đơn vị: kg cho Rau củ/Trái cây/Thịt/Thủy hải sản, hộp cho Trứng):"]
+    tong_theo_nhom = defaultdict(lambda: {"huy": 0.0, "mmkk": 0.0})
+    co_du_lieu = False
+    ngay = ngay_tu
+    while ngay <= ngay_den:
+        ngay_str = ngay.strftime("%Y-%m-%d")
+        rows = storage.get_fresh_records_by_date(ngay_str)
+        if rows:
+            co_du_lieu = True
+        theo_nhom = defaultdict(lambda: {"huy": 0.0, "mmkk": 0.0})
+        for r in rows:
+            nh = r.get("nganh_hang") or "Khác"
+            huy_val = r.get("sl_huy") or 0
+            mmkk_val = r.get("sl_mmkk") or 0
+            theo_nhom[nh]["huy"] += huy_val
+            theo_nhom[nh]["mmkk"] += mmkk_val
+            tong_theo_nhom[nh]["huy"] += huy_val
+            tong_theo_nhom[nh]["mmkk"] += mmkk_val
+        chi_tiet = "; ".join(
+            f"{nh}: hủy {s['huy']:.1f}, mmkk {s['mmkk']:.1f}"
+            for nh, s in sorted(theo_nhom.items())
+        )
+        dong.append(f"  Ngày {ngay_str}: {chi_tiet if chi_tiet else '(không có dữ liệu)'}")
+        ngay += _td_local(days=1)
+    if not co_du_lieu:
+        return None
+    dong.append(f"Tổng cộng dồn cả khoảng {ngay_tu.strftime('%d/%m')} - {ngay_den.strftime('%d/%m')} (theo ngành hàng):")
+    for nh, s in sorted(tong_theo_nhom.items()):
+        dong.append(f"  {nh}: hủy tồn {s['huy']:.1f}, mất mát kiểm kê {s['mmkk']:.1f}")
+    return "\n".join(dong)
+
+
+def phan_tich_fresh_khoang_ngay(ngay_tu, ngay_den, target_id=None):
+    """Nhận xét Hủy tồn + MMKK cho 1 KHOẢNG NGÀY cụ thể — MỚI (16/09/2026).
+    Dùng AI tìm nguyên nhân theo từng ngành hàng, phát hiện ngày bất thường,
+    phân biệt lỗi mãn tính (lặp lại đều mỗi ngày) với sự cố 1 lần (1 ngày
+    đột biến rồi thôi) — đúng kiểu phân tích sâu, không chỉ liệt kê số."""
+    noi_dung = _context_fresh_khoang_ngay(ngay_tu, ngay_den)
+    if noi_dung is None:
+        return (f"Chưa có dữ liệu Hủy tồn + MMKK trong khoảng {ngay_tu.strftime('%d/%m/%Y')} - "
+                f"{ngay_den.strftime('%d/%m/%Y')}.")
+    tieu_de = f"Hủy tồn + MMKK ({ngay_tu.strftime('%d/%m')} - {ngay_den.strftime('%d/%m')})"
+    return phan_tich_du_lieu(tieu_de, noi_dung, target_id=target_id)
+
+
 def phan_tich_anh(image_bytes, media_type="image/jpeg", target_id=None):
     """Gửi ảnh (bytes) cho Claude Vision để đọc + phân tích số liệu trong ảnh.
     Không bao giờ raise ra ngoài — luôn trả về 1 chuỗi text để bot reply
