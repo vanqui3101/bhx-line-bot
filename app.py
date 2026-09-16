@@ -179,6 +179,14 @@ SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*thuy\s*hai\s*san")
 # này chỉ phân biệt được nhờ dấu, bỏ dấu đi thì giống hệt nhau.
 NHAN_XET_TRIGGER = re.compile(r"nhan\s*xet")
 TEN_NHAN_XET_RE = re.compile(r"\b(Mi|Quyên|Sang|Thi|Ánh|Linh|Son)\b")
+# MỚI (16/09/2026, theo yêu cầu anh Quí): "nhận xét <loại data> <ngày>" —
+# NHẬN XÉT SỐ LIỆU trực tiếp, không cần gõ lệnh lấy báo cáo trước như "phân
+# tích số liệu" cũ. Phân biệt với "nhận xét mục tiêu" (nhân viên) ở trên nhờ
+# có kèm 1 trong các từ khoá loại data bên dưới — có từ khoá thì xử lý ở
+# đây, KHÔNG có thì rớt xuống nhánh "nhận xét mục tiêu" cũ như bình thường.
+NHAN_XET_MMKK_RE = re.compile(r"mmkk|huy\s*ton")
+NHAN_XET_DOANH_THU_RE = re.compile(r"doanh\s*thu")
+NHAN_XET_KM_RE = re.compile(r"khuyen\s*mai|nganh\s*hang|mtkm")
 def _co_tag_bot(text):
     return BOT_TAG_TEXT_KD in _bo_dau(text)
 _BOT_USER_ID_CACHE = {"id": None}
@@ -1514,6 +1522,39 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     reply_text(messaging_api, event.reply_token, f"Có lỗi khi phân tích: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # Lệnh "NHẬN XÉT <loại data>" (MỚI 16/09/2026) — anh Quí tag bot, nói
+        # thẳng muốn nhận xét cái gì (mmkk/hủy tồn, doanh thu, khuyến mãi/
+        # ngành hàng), có thể kèm ngày cụ thể hoặc "hôm nay" ngay trong câu.
+        # KHÔNG cần gõ lệnh lấy báo cáo trước — bot tự lấy đúng data tương
+        # ứng rồi nhận xét luôn. VD: "nhận xét mmkk ngày 15/09 @TROLY",
+        # "nhận xét doanh thu hôm nay như nào @TROLY", "nhận xét kết quả
+        # khuyến mãi hôm nay @TROLY".
+        if (NHAN_XET_TRIGGER.search(text_kd) and (source_type != "group" or da_tag_bot)
+                and (NHAN_XET_MMKK_RE.search(text_kd) or NHAN_XET_DOANH_THU_RE.search(text_kd)
+                     or NHAN_XET_KM_RE.search(text_kd))):
+            try:
+                if NHAN_XET_MMKK_RE.search(text_kd):
+                    mode, ngay_tu, ngay_den = fresh_report.parse_date_request(text)
+                    if mode == "single":
+                        ket_qua = fresh_report.build_phan_tich(
+                            ngay_tu, so_sanh_voi_hom_qua=fresh_report.wants_comparison(text)
+                        )
+                        if ket_qua is None:
+                            ket_qua = f"Chưa có dữ liệu Hủy tồn + MMKK ngày {ngay_tu.strftime('%d/%m/%Y')}."
+                    else:
+                        ket_qua = ai_assistant.phan_tich_fresh_khoang_ngay(ngay_tu, ngay_den, target_id=target_id)
+                elif NHAN_XET_DOANH_THU_RE.search(text_kd):
+                    ket_qua = ai_assistant.phan_tich_doanh_thu(target_id=target_id)
+                else:
+                    ket_qua = ai_assistant.phan_tich_nganh_hang(target_id=target_id)
+                reply_text(messaging_api, event.reply_token, ket_qua)
+            except Exception:
+                traceback.print_exc()
+                try:
+                    reply_text(messaging_api, event.reply_token, "Có lỗi khi em nhận xét, thử lại giúp em nhé.")
                 except Exception:
                     traceback.print_exc()
             return
