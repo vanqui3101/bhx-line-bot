@@ -2,16 +2,17 @@
 excel_reader.py - Đọc 3 loại file Excel mà bot nhận:
 
 1) File "doanh thu theo siêu thị" (nhiều dòng, mỗi dòng 1 siêu thị / 1 ngày)
-   -> read_all_rows()  (giữ nguyên logic cũ, không đổi)
+   -> read_all_rows() (giữ nguyên logic cũ, không đổi)
 
 2) File "doanh thu chi tiết" theo ngành hàng / sản phẩm (nhiều dòng, mỗi dòng
    1 sản phẩm bán ra trong ngày, cùng 1 siêu thị)
-   -> read_category_rows()  (phục vụ báo cáo "MỤC TIÊU KHUYẾN MÃI":
-      Nấm / Bánh trung thu / Trà C2)
+   -> read_category_rows() (phục vụ báo cáo "MỤC TIÊU KHUYẾN MÃI":
+      Nấm / C2 các loại / Nước giặt 888)
 
 3) File "BC tồn theo model" (tồn kho từng sản phẩm tại siêu thị)
-   -> read_stock_rows()  (mới thêm, phục vụ tính "% bán trên tồn" cho
-      Bánh trung thu và Trà C2 trong báo cáo MỤC TIÊU KHUYẾN MÃI)
+   -> read_stock_rows() (mới thêm, phục vụ tính "% bán trên tồn" cho
+      báo cáo MỤC TIÊU KHUYẾN MÃI — [02/10/2026] hiện thẻ MTKM bản mới
+      không còn hiển thị cột % này nữa, xem ghi chú tại attach_stock_percentage)
 
 detect_file_type() dùng để tự động phân biệt 3 loại file khi người dùng gửi
 file vào bot, không cần người dùng khai báo loại file.
@@ -58,10 +59,8 @@ STOCK_COL = {
     "don_vi": "Đơn vị",
 }
 
-
 def _header_row(ws):
     return [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
-
 
 def detect_file_type(input_path):
     """Trả về 'revenue', 'category', 'stock', 'fresh', hoặc None nếu không nhận diện được."""
@@ -80,13 +79,11 @@ def detect_file_type(input_path):
         return "stock"
     return None
 
-
 def _find_col_index(header_row, name):
     for i, cell in enumerate(header_row, start=1):
         if str(cell.value).strip() == name:
             return i
     return None
-
 
 def read_all_rows(input_path):
     """Đọc toàn bộ dòng dữ liệu trong sheet đầu tiên (file doanh thu theo siêu thị).
@@ -125,22 +122,26 @@ def read_all_rows(input_path):
         raise ValueError("Không tìm thấy dòng dữ liệu nào trong file.")
     return rows[0]["ngay"], rows
 
-
 # ---------------------------------------------------------------------------
-# LOẠI 2: FILE CHI TIẾT NGÀNH HÀNG (Nấm / Bánh trung thu / Trà C2)
+# LOẠI 2: FILE CHI TIẾT NGÀNH HÀNG (Nấm / C2 các loại / Nước giặt 888)
+# [02/10/2026] Đã bỏ BÁNH TRUNG THU (hết mùa, không còn dữ liệu bán từ
+# 25/09) theo chốt với anh Quí, thay bằng NƯỚC GIẶT 888. C2 thu hẹp lại
+# còn ĐÚNG 2 sản phẩm anh Quí yêu cầu theo dõi (trước đây theo dõi 7 sản
+# phẩm C2 khác nhau).
 # ---------------------------------------------------------------------------
 
-# Các sản phẩm C2 cần theo dõi, quy đổi ra "chai".
-# key = tên hiển thị, value = từ khoá để nhận diện trong "Tên sản phẩm"
+# 2 sản phẩm C2 theo dõi cho MTKM (chốt với anh Quí 02/10/2026) — khớp theo
+# CẢ 2 từ khóa cùng có trong tên sản phẩm (tránh lẫn giữa các sản phẩm C2
+# có từ gần giống nhau, vd cùng có chữ "VẢI").
 C2_TARGETS = [
-    ("Chanh tuyết bạc hà", "TUYẾT"),
-    ("Trà xanh hương chanh 360ml", "HƯƠNG CHANH"),
-    ("Trà hồng vải", "HỒNG VẢI"),
-    ("Trà vải", "VẢI"),
-    ("Trà đen dâu anh đào", "DÂU ANH ĐÀO"),
-    ("Sâm Cúc", "SÂM"),
-    ("Trà đen tắc", "TẮC"),
+    ("Trà hồng C2 vị vải chai 455ml", ["HỒNG", "VẢI"]),
+    ("Nước sâm hoa cúc thảo mộc C2 Cool chai 280ml", ["SÂM", "CÚC"]),
 ]
+
+# Nước giặt xả 888 theo dõi cho MTKM (mới 02/10/2026) — CHỈ 1 sản phẩm,
+# đơn vị gốc là "túi", không cần quy đổi gì cả.
+NUOC_GIAT_888_TEN = "Nước giặt xả 888 hương phấn thơm túi 3.2kg"
+NUOC_GIAT_888_KEYWORDS = ["888", "GIẶT"]
 
 UNIT_TO_CHAI = {
     "THÙNG": 24,
@@ -148,13 +149,11 @@ UNIT_TO_CHAI = {
     "CHAI": 1,
 }
 
-
 def _unit_multiplier(don_vi):
     if not don_vi:
         return 1
     key = str(don_vi).strip().upper()
     return UNIT_TO_CHAI.get(key, 1)
-
 
 # 5 nhóm ngành hàng gộp theo yêu cầu, hiển thị trong bảng "DOANH THU THEO NGÀNH HÀNG"
 # của thẻ báo cáo doanh thu. key = tên hiển thị, value = danh sách tên "Ngành hàng"
@@ -167,29 +166,34 @@ NGANH_HANG_GROUPS = [
     ("Thủy Hải Sản", ["Thủy Hải Sản Các Loại"]),
 ]
 
-
 def read_category_rows(input_path, filter_date=None):
     """Đọc file chi tiết ngành hàng, trả về dict tổng hợp:
     {
-        "ngay": "2026-08-15",
+        "ngay": "2026-10-02",
         "ten_st": "BHX_STR_CLD - Thửa 1289 An Nghiệp",
-        "nam": {"doanh_thu": 798095},
-        "banh_trung_thu": {
-            "items": [{"ten": "...", "sl": 1, "thanh_tien": 78704}, ...],
-            "tong_sl": 5,
-            "tong_tien": 307407,
-        },
+        "nam": {"doanh_thu": 320952},
         "c2": {
-            "items": [{"ten": "...", "chai": 494, "thanh_tien": 2872727}, ...],
-            "tong_chai": 694,
-            "tong_tien": 4054764,
+            "items": [{"ten": "...", "sl": 2, "thanh_tien": ...}, ...],
+            "tong_sl": 4,
+            "tong_tien": ...,
         },
+        "nuoc_giat_888": {
+            "ten": "Nước giặt xả 888 hương phấn thơm túi 3.2kg",
+            "sl": 2,
+            "thanh_tien": ...,
+            "so_ngay_ca_thang": 31,
+            "du_kien_cuoi_thang": 62.0,
+        },
+        "nganh_hang": {"items": [...], "tong_tien": ...},
     }
 
     filter_date: nếu file trải nhiều ngày (vd dùng chung cho báo cáo thưởng),
     truyền vào "YYYY-MM-DD" để CHỈ lấy đúng ngày đó (dùng cho MTKM — luôn là
-    dữ liệu 1 ngày). Để None nếu file vốn đã chỉ có 1 ngày.
+    dữ liệu 1 ngày, lấy đúng ngày mới nhất anh cập nhật, KHÔNG lũy kế nhiều
+    ngày). Để None nếu file vốn đã chỉ có 1 ngày.
     """
+    import calendar
+
     wb = openpyxl.load_workbook(input_path, data_only=True)
     ws = wb.worksheets[0]
     header_row = list(ws[1])
@@ -210,8 +214,9 @@ def read_category_rows(input_path, filter_date=None):
     nam_total = 0.0
 
     # gộp theo tên sản phẩm để không lặp dòng trùng
-    btt_map = {}   # ten_sp -> {sl, thanh_tien, ma_sp_set}
-    c2_map = {label: {"chai": 0.0, "thanh_tien": 0.0, "sl_raw": 0.0, "ma_sp_set": set()} for label, _ in C2_TARGETS}
+    c2_map = {ten: {"sl": 0.0, "thanh_tien": 0.0} for ten, _ in C2_TARGETS}
+    nuoc_giat_sl = 0.0
+    nuoc_giat_tien = 0.0
     nganh_hang_map = {}  # ten_nganh_hang -> thanh_tien (tổng doanh thu toàn bộ ngành hàng)
 
     for r in range(2, ws.max_row + 1):
@@ -246,8 +251,7 @@ def read_category_rows(input_path, filter_date=None):
         ten_hang = str(cell(r, "ten_hang") or "").strip().upper()
         don_vi = cell(r, "don_vi")
         hinh_thuc = str(cell(r, "hinh_thuc_xuat") or "").strip().upper()
-        ma_sp_val = cell(r, "ma_sp")
-        ma_sp = str(ma_sp_val).strip() if ma_sp_val is not None else ""
+        la_tang = "TẶNG" in hinh_thuc
 
         # ---- NẤM ----
         if nhom_hang == "Nấm Các Loại":
@@ -258,42 +262,26 @@ def read_category_rows(input_path, filter_date=None):
         if nganh_hang:
             nganh_hang_map[nganh_hang] = nganh_hang_map.get(nganh_hang, 0.0) + thanh_tien
 
-        # ---- BÁNH TRUNG THU ----
-        if "TRUNG THU" in ten_sp_upper:
-            # bỏ qua hàng tặng / khuyến mãi, chỉ tính hàng bán thực tế
-            if "TẶNG" not in hinh_thuc and sl_thuc_xuat > 0:
-                entry = btt_map.setdefault(ten_sp_str, {"sl": 0.0, "thanh_tien": 0.0, "ma_sp_set": set()})
-                entry["sl"] += sl_thuc_xuat
-                entry["thanh_tien"] += thanh_tien
-                if ma_sp:
-                    entry["ma_sp_set"].add(ma_sp)
+        # ---- C2 CÁC LOẠI (chỉ 2 sản phẩm theo dõi, không tính hàng tặng) ----
+        if not la_tang and sl_thuc_xuat > 0 and (ten_hang == "C2" or "C2" in ten_sp_upper):
+            for ten, keywords in C2_TARGETS:
+                if all(kw in ten_sp_upper for kw in keywords):
+                    c2_map[ten]["sl"] += sl_thuc_xuat
+                    c2_map[ten]["thanh_tien"] += thanh_tien
+                    break
 
-        # ---- TRÀ C2 ----
-        if ten_hang == "C2" or "C2" in ten_sp_upper:
-            if sl_thuc_xuat > 0:
-                for label, keyword in C2_TARGETS:
-                    if keyword in ten_sp_upper:
-                        mult = _unit_multiplier(don_vi)
-                        c2_map[label]["chai"] += sl_thuc_xuat * mult
-                        c2_map[label]["thanh_tien"] += thanh_tien
-                        c2_map[label]["sl_raw"] += sl_thuc_xuat
-                        if ma_sp:
-                            c2_map[label]["ma_sp_set"].add(ma_sp)
-                        break
+        # ---- NƯỚC GIẶT 888 (1 sản phẩm, đơn vị gốc túi, không quy đổi) ----
+        if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
+            nuoc_giat_sl += sl_thuc_xuat
+            nuoc_giat_tien += thanh_tien
 
     if ngay_str is None:
         raise ValueError("Không tìm thấy dữ liệu ngày trong file.")
 
-    btt_items = [
-        {"ten": ten, "sl": v["sl"], "thanh_tien": v["thanh_tien"], "ma_sp": sorted(v["ma_sp_set"])}
-        for ten, v in sorted(btt_map.items())
-        if v["sl"] > 0
-    ]
     c2_items = [
-        {"ten": label, "chai": v["chai"], "thanh_tien": v["thanh_tien"],
-         "sl_raw": v["sl_raw"], "ma_sp": sorted(v["ma_sp_set"])}
-        for label, v in c2_map.items()
-        if v["chai"] > 0
+        {"ten": ten, "sl": v["sl"], "thanh_tien": v["thanh_tien"]}
+        for ten, v in c2_map.items()
+        if v["sl"] > 0
     ]
 
     nganh_hang_items = [
@@ -301,26 +289,34 @@ def read_category_rows(input_path, filter_date=None):
         for ten, tt in sorted(nganh_hang_map.items(), key=lambda x: -x[1])
     ]
 
+    # Dự kiến đến hết tháng cho Nước giặt 888: lấy đúng SL bán của 1 ngày
+    # (ngày MTKM, KHÔNG lũy kế) nhân với số ngày của cả tháng — theo đúng
+    # cách anh Quí đã chốt ở bản demo.
+    ngay_dt = datetime.strptime(ngay_str, "%Y-%m-%d")
+    so_ngay_ca_thang = calendar.monthrange(ngay_dt.year, ngay_dt.month)[1]
+    du_kien_cuoi_thang = nuoc_giat_sl * so_ngay_ca_thang if nuoc_giat_sl > 0 else 0.0
+
     return {
         "ngay": ngay_str,
         "ten_st": ten_st or "—",
         "nam": {"doanh_thu": nam_total},
-        "banh_trung_thu": {
-            "items": btt_items,
-            "tong_sl": sum(i["sl"] for i in btt_items),
-            "tong_tien": sum(i["thanh_tien"] for i in btt_items),
-        },
         "c2": {
             "items": c2_items,
-            "tong_chai": sum(i["chai"] for i in c2_items),
+            "tong_sl": sum(i["sl"] for i in c2_items),
             "tong_tien": sum(i["thanh_tien"] for i in c2_items),
+        },
+        "nuoc_giat_888": {
+            "ten": NUOC_GIAT_888_TEN,
+            "sl": nuoc_giat_sl,
+            "thanh_tien": nuoc_giat_tien,
+            "so_ngay_ca_thang": so_ngay_ca_thang,
+            "du_kien_cuoi_thang": du_kien_cuoi_thang,
         },
         "nganh_hang": {
             "items": nganh_hang_items,
             "tong_tien": sum(i["thanh_tien"] for i in nganh_hang_items),
         },
     }
-
 
 # ---------------------------------------------------------------------------
 # LOẠI 3: FILE TỒN KHO (BC tồn theo model)
@@ -342,7 +338,6 @@ def count_distinct_dates(input_path):
             dates.add(d)
     wb.close()
     return len(dates)
-
 
 # ---------------------------------------------------------------------------
 # LOẠI 4: FILE HỦY TỒN + MẤT MÁT KIỂM KÊ (FRESH) - mới thêm
@@ -372,7 +367,6 @@ FRESH_NHOM_LON = {
     "Trứng Các Loại": "Trứng",
 }
 
-
 def _detect_don_vi(ten_sp):
     """Suy ra đơn vị hiển thị gốc của sản phẩm từ tên (kg/hộp/gói/túi/vỉ/bó/trái).
     Ưu tiên "(KG)" trước tiên để tránh nhận nhầm (vd "BẮP CẢI TRÁI TIM (KG)")."""
@@ -392,7 +386,6 @@ def _detect_don_vi(ten_sp):
     if "CÂY BÓ" in n:
         return "bó"
     return "kg"
-
 
 def read_fresh_rows(input_path):
     """Đọc file hủy tồn + MMKK (FRESH), trả về list các dict, mỗi dict là 1
@@ -449,12 +442,11 @@ def read_fresh_rows(input_path):
         raise ValueError("Không tìm thấy dữ liệu trong file.")
     return rows
 
-
 def read_stock_rows(input_path):
     """Đọc file "BC tồn theo model", trả về dict:
     {
         "ten_st": "BHX_STR_CLD - Thửa 1289 An Nghiệp",
-        "ton_kho_map": {"8888077102092": 12.0, ...},   # mã sản phẩm (đã strip) -> tồn kho
+        "ton_kho_map": {"8888077102092": 12.0, ...},  # mã sản phẩm (đã strip) -> tồn kho
         "rows": [{"model": "...", "ton_kho": 12.0}, ...],  # dùng để so khớp theo từ khóa (vd Trà C2)
     }
     """
@@ -501,57 +493,15 @@ def read_stock_rows(input_path):
 
     return {"ten_st": ten_st or "—", "ton_kho_map": ton_kho_map, "rows": rows}
 
-
 def attach_stock_percentage(category_payload, stock_data):
-    """Ghép % bán/nhập vào từng sản phẩm Bánh trung thu / Trà C2 của báo cáo
-    ngành hàng. Công thức: % = SL bán (đã quy đổi cùng đơn vị) / Tồn kho hiện tại.
-
-    - Bánh trung thu: so khớp theo mã sản phẩm (đơn vị "Cái" đồng nhất 2 file).
-    - Trà C2: so khớp theo TỪ KHÓA tên sản phẩm (giống cách nhận diện C2_TARGETS),
-      vì mã sản phẩm giữa 2 file không đồng nhất; số bán dùng "chai" đã quy đổi
-      để cùng đơn vị với tồn kho (tồn kho file luôn tính theo Chai).
-
-    Không sửa category_payload gốc — trả về bản sao đã ghép thêm "pct_ban_nhap".
-    """
+    """[02/10/2026] Thẻ MTKM bản mới KHÔNG còn hiển thị cột "% bán/nhập" cho
+    C2 CÁC LOẠI / NƯỚC GIẶT 888 nữa (chốt với anh Quí — chỉ còn hiển thị SL
+    bán). Giữ nguyên hàm này (không xoá hẳn, để không phải sửa chỗ gọi nó ở
+    app.py) nhưng giờ chỉ trả về bản sao y nguyên payload, không gắn thêm gì
+    cả. Nếu sau này cần lại % bán/nhập thì viết lại logic so khớp tồn kho ở
+    đây (stock_data["ton_kho_map"] / stock_data["rows"] vẫn còn nguyên)."""
     import copy
-    payload = copy.deepcopy(category_payload)
-
-    ton_kho_map = stock_data.get("ton_kho_map", {})
-    stock_rows = stock_data.get("rows", [])
-
-    def _pct_btt(ma_sp_list, sl_ban):
-        ton_kho_tong = sum(ton_kho_map.get(ma, 0.0) for ma in ma_sp_list)
-        if ton_kho_tong <= 0:
-            return None
-        return sl_ban / ton_kho_tong * 100
-
-    def _ton_kho_c2_theo_nhan():
-        """Tính tồn kho cho từng nhãn C2, dùng logic khớp từ khóa ĐẦU TIÊN
-        (giống hệt cách phân loại lúc đọc file doanh thu chi tiết) để một sản
-        phẩm không bị tính trùng vào 2 nhãn cùng lúc (vd "chanh tuyết bạc hà"
-        chứa cả từ khóa "HƯƠNG CHANH" lẫn "TUYẾT")."""
-        result = {label: 0.0 for label, _ in C2_TARGETS}
-        for row in stock_rows:
-            m = row["model"].upper()
-            if "C2" not in m:
-                continue
-            for label, keyword in C2_TARGETS:
-                if keyword in m:
-                    result[label] += row["ton_kho"]
-                    break
-        return result
-
-    ton_kho_c2 = _ton_kho_c2_theo_nhan()
-
-    for item in payload["banh_trung_thu"]["items"]:
-        item["pct_ban_nhap"] = _pct_btt(item.get("ma_sp", []), item["sl"])
-
-    for item in payload["c2"]["items"]:
-        ton_kho_tong = ton_kho_c2.get(item["ten"], 0.0)
-        item["pct_ban_nhap"] = (item["chai"] / ton_kho_tong * 100) if ton_kho_tong > 0 else None
-
-    return payload
-
+    return copy.deepcopy(category_payload)
 
 # ---------------------------------------------------------------------------
 # BÁO CÁO THƯỞNG (lệnh "TD" / "THƯỞNG") — FRESH (thịt heo/gà nhập khẩu)
@@ -561,6 +511,10 @@ def attach_stock_percentage(category_payload, stock_data):
 # trong 1 file (ví dụ từ đầu tháng đến hiện tại). Base của từng chương trình
 # lấy theo mặc định đã tính sẵn từ dữ liệu thực tế các tháng trước — không
 # cần người dùng tự nhập.
+#
+# LƯU Ý: danh sách THUONG_C2_TARGETS bên dưới là RIÊNG, KHÁC với C2_TARGETS
+# dùng cho MTKM ở trên (lệnh TD/THƯỞNG vẫn tính thưởng theo đủ các sản phẩm
+# C2 cũ, không bị ảnh hưởng bởi việc MTKM thu hẹp còn 2 sản phẩm).
 # ---------------------------------------------------------------------------
 
 import calendar
@@ -568,8 +522,8 @@ from datetime import date as _date
 
 # ----- Base mặc định (đã tính sẵn từ dữ liệu tháng 5, 6, 7/2026 thực tế) -----
 THUONG_BASE = {
-    "fresh_kg": 930.6,                 # TB tháng 5-6/2026 (thịt heo/gà nhập khẩu)
-    "skdm_revenue": 426_257_994.0,     # Doanh thu Sữa-Kem-Đông-Mát tháng 7/2026
+    "fresh_kg": 930.6,  # TB tháng 5-6/2026 (thịt heo/gà nhập khẩu)
+    "skdm_revenue": 426_257_994.0,  # Doanh thu Sữa-Kem-Đông-Mát tháng 7/2026
     "bianuoc_revenue": 175_070_233.0,  # Doanh thu Bia-Nước tháng 6/2026
 }
 
@@ -592,7 +546,6 @@ THUONG_C2_TARGETS = [
 THUONG_OLONG_KEYWORDS = ["OOLONG", "CHAI 1L"]
 THUONG_OLONG_RATE = 1000
 
-
 def _muc_thuong_fresh(pct):
     if pct >= 12:
         return 1000, "Mức cao nhất (≥12%)"
@@ -602,14 +555,12 @@ def _muc_thuong_fresh(pct):
         return 300, "Mức 1 (≥5%)"
     return 0, "Chưa đạt mốc thưởng (<5%)"
 
-
 def _muc_thuong_skdm(pct):
     if pct >= 10:
         return 0.005, "Mức 2 (≥10%)"
     if pct >= 5:
         return 0.0025, "Mức 1 (≥5%)"
     return 0.0, "Chưa đạt mốc thưởng (<5%)"
-
 
 def _muc_thuong_bianuoc(pct):
     if pct >= 25:
@@ -619,7 +570,6 @@ def _muc_thuong_bianuoc(pct):
     if pct >= 5:
         return 250_000, "Mức 1 (≥5%)"
     return 0, "Chưa đạt mốc thưởng (<5%)"
-
 
 def read_thuong_period_rows(input_path):
     """Đọc file "doanh thu chi tiết" (có thể trải nhiều ngày, vd 01/08 -> hiện tại).
@@ -797,13 +747,11 @@ def read_thuong_period_rows(input_path):
         "tong_thuong_du_kien": tong_thuong_du_kien,
     }
 
-
 # ---------------------------------------------------------------------------
 # LỊCH HỖ TRỢ SIÊU THỊ KHÁC (Ngày | Tên | Ca làm) - mới thêm
 # ---------------------------------------------------------------------------
 
 SCHEDULE_COL_NAMES = {"ngay": "Ngày", "ten": "Tên", "ca": "Ca làm"}
-
 
 def is_schedule_file(input_path):
     """Kiểm tra nhanh xem file có phải file 'lịch hỗ trợ' (Ngày/Tên/Ca làm) không."""
@@ -812,7 +760,6 @@ def is_schedule_file(input_path):
     headers = set(_header_row(ws))
     wb.close()
     return {"Ngày", "Tên", "Ca làm"}.issubset(headers)
-
 
 def read_schedule_rows(input_path, default_year=None):
     """Đọc file lịch hỗ trợ (cột Ngày | Tên | Ca làm). Trả về list dict
@@ -856,7 +803,6 @@ def read_schedule_rows(input_path, default_year=None):
         raise ValueError("Không tìm thấy dòng dữ liệu nào trong file lịch hỗ trợ.")
     return rows
 
-
 # ---------------------------------------------------------------------------
 # LỊCH PHÂN CA (nhiều ngày x 6 ca/ngày) + TỰ ĐỘNG PHÂN LINE
 # ---------------------------------------------------------------------------
@@ -873,7 +819,6 @@ MA_NV_TO_TEN_NGAN = {
 }
 MA_NV_LOAI_TRU = {"237175", "227216"}
 
-
 def is_ca_schedule_file(input_path):
     """Kiểm tra nhanh: file có phải bảng lịch phân ca (nhiều ngày x Ca 1-6) không."""
     wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
@@ -881,7 +826,6 @@ def is_ca_schedule_file(input_path):
     row1 = [str(c.value) for c in next(ws.iter_rows(min_row=1, max_row=1)) if c.value]
     wb.close()
     return any("(" in v and ")" in v and "/" in v for v in row1)
-
 
 def read_ca_schedule(input_path, nam_mac_dinh=None):
     """Đọc file lịch phân ca (giống bảng Quản Lý Phân Ca), trả về:
@@ -924,7 +868,6 @@ def read_ca_schedule(input_path, nam_mac_dinh=None):
         result[ngay_str] = {"sang": sang, "chieu": chieu}
 
     return result
-
 
 # ---- Quy tắc phân line tự động (chốt cùng anh Quí) ----
 def phan_line_assign(names_in_ca, rotation_picker):
@@ -973,7 +916,6 @@ def phan_line_assign(names_in_ca, rotation_picker):
         result["FRESH"].append(p)
 
     return result
-
 
 TEN_NGAN_TO_MA_NV = {v: k for k, v in MA_NV_TO_TEN_NGAN.items()}
 
