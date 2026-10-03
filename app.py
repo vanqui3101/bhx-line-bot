@@ -1082,8 +1082,8 @@ def handle_file_message(event):
                     reply = (
                         f"✅ Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}.\n"
                         f"Nấm: {payload['nam']['doanh_thu']:,.0f} đ | "
-                        f"Bánh trung thu: {payload['banh_trung_thu']['tong_sl']:.0f} cái | "
-                        f"C2: {payload['c2']['tong_chai']:.0f} chai\n\n"
+                        f"Nước giặt 888: {payload['nuoc_giat_888']['sl']:.0f} túi | "
+                        f"C2: {payload['c2']['tong_sl']:.0f} sp\n\n"
                         f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo."
                     ).replace(",", ".")
                     reply_text(messaging_api, event.reply_token, reply)
