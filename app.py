@@ -59,7 +59,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent, ImageMessageContent
 from excel_reader import (
-    read_all_rows, read_category_rows, read_stock_rows, attach_stock_percentage,
+    read_all_rows, read_category_rows, read_category_rows_by_date, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
     is_schedule_file, read_schedule_rows,
     is_ca_schedule_file, read_ca_schedule, phan_line_assign,
@@ -73,6 +73,7 @@ import dtdk_report
 import storage
 import ai_assistant
 import thuong_freshfmcg
+import mtkm_tracker
 import gdrive_reader
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
@@ -308,18 +309,51 @@ def build_revenue_report_messages(base_url):
     return flex_message
 def build_category_report_message():
     """Tạo flex_message báo cáo ngành hàng mới nhất, hoặc None nếu chưa có dữ liệu."""
-    ngay, ten_st, payload, _gio = storage.get_latest_category_report()
+    ngay, ten_st, payload, gio = storage.get_latest_category_report()
     if ngay is None:
         return None
-    _stock_ten_st, stock_payload, _stock_gio = storage.get_latest_stock_snapshot()
-    if stock_payload:
-        payload = attach_stock_percentage(payload, stock_payload)
-    bubble = build_category_flex_message(ngay, ten_st, payload)
+    # (05/10/2026) Thẻ MTKM mới: tính lũy kế + mục tiêu ngày từ dữ liệu đã lưu
+    try:
+        kq = mtkm_tracker.tinh_mtkm(ngay)
+    except Exception:
+        traceback.print_exc()
+        kq = None
+    bubble = build_category_flex_message(ngay, ten_st, payload, kq=kq, gio=gio)
     flex_message = FlexMessage(
         alt_text=f"Báo cáo ngành hàng {ngay}",
         contents=FlexContainer.from_dict(bubble),
     )
     return flex_message
+def _luu_mtkm_tat_ca_ngay(tmp_path):
+    """(05/10/2026) Lưu số liệu MTKM cho TỪNG NGÀY có trong file POS 76 (file
+    1 ngày hay nhiều ngày đều được). Nạp lại ngày đã có -> ghi đè, không cộng
+    trùng. Trả về (danh sách ngày đã lưu, payload của ngày mới nhất)."""
+    theo_ngay = read_category_rows_by_date(tmp_path)
+    gio = _now_vn_time_str()
+    for ngay in sorted(theo_ngay):
+        p = theo_ngay[ngay]
+        storage.save_category_report(ngay, p["ten_st"], p, gio)
+    ds = sorted(theo_ngay)
+    return ds, (theo_ngay[ds[-1]] if ds else None)
+
+
+def _tin_xac_nhan_mtkm(ds_ngay):
+    """Tin nhắn xác nhận ngắn sau khi nạp file: ngày đã lưu + tóm tắt MTKM."""
+    if not ds_ngay:
+        return "Không tìm thấy dữ liệu ngày nào trong file."
+    if len(ds_ngay) == 1:
+        nhan = _dt.strptime(ds_ngay[0], "%Y-%m-%d").strftime("%d/%m/%Y")
+    else:
+        nhan = (f"{len(ds_ngay)} ngày ({_dt.strptime(ds_ngay[0], '%Y-%m-%d').strftime('%d/%m')} - "
+                f"{_dt.strptime(ds_ngay[-1], '%Y-%m-%d').strftime('%d/%m')})")
+    try:
+        tom_tat = mtkm_tracker.tom_tat_text(mtkm_tracker.tinh_mtkm(ds_ngay[-1]))
+    except Exception:
+        traceback.print_exc()
+        tom_tat = ""
+    return f"Đã cập nhật MTKM {nhan}." + (f"\n{tom_tat}" if tom_tat else "")
+
+
 def build_thuong_report_message():
     """Tạo flex_message báo cáo thưởng (FRESH + FMCG) mới nhất, hoặc None nếu chưa có dữ liệu."""
     ten_st, payload, _gio = storage.get_latest_thuong_report()
@@ -924,21 +958,14 @@ def _process_drive_file(tmp_path, file_name):
             if so_ngay >= 2:
                 thuong_payload = read_thuong_period_rows(tmp_path)
                 storage.save_thuong_report(thuong_payload["ten_st"], thuong_payload, _now_vn_time_str())
-                mtkm_payload = read_category_rows(tmp_path, filter_date=thuong_payload["ngay_ket_thuc"])
-                storage.save_category_report(
-                    mtkm_payload["ngay"], mtkm_payload["ten_st"], mtkm_payload, _now_vn_time_str()
-                )
+                ds_ngay, _p = _luu_mtkm_tat_ca_ngay(tmp_path)
                 ngay_bd_disp = _dt.strptime(thuong_payload["ngay_bat_dau"], "%Y-%m-%d").strftime("%d/%m")
                 ngay_kt_disp = _dt.strptime(thuong_payload["ngay_ket_thuc"], "%Y-%m-%d").strftime("%d/%m")
                 return True, (f"✅ [Tự động từ Drive] Đã lưu THƯỞNG ({thuong_payload['so_ngay_da_qua']} ngày, "
-                              f"{ngay_bd_disp} - {ngay_kt_disp}) và cập nhật MTKM cho ngày {ngay_kt_disp}.")
+                              f"{ngay_bd_disp} - {ngay_kt_disp}).\n" + _tin_xac_nhan_mtkm(ds_ngay))
             else:
-                payload = read_category_rows(tmp_path)
-                storage.save_category_report(
-                    payload["ngay"], payload["ten_st"], payload, _now_vn_time_str()
-                )
-                date_display = _dt.strptime(payload["ngay"], "%Y-%m-%d").strftime("%d/%m/%Y")
-                return True, f"✅ [Tự động từ Drive] Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}."
+                ds_ngay, _p = _luu_mtkm_tat_ca_ngay(tmp_path)
+                return True, "✅ [Tự động từ Drive] " + _tin_xac_nhan_mtkm(ds_ngay)
         elif file_type == "stock":
             stock_payload = read_stock_rows(tmp_path)
             storage.save_stock_snapshot(
@@ -1059,33 +1086,24 @@ def handle_file_message(event):
                     storage.save_thuong_report(
                         thuong_payload["ten_st"], thuong_payload, _now_vn_time_str()
                     )
-                    mtkm_payload = read_category_rows(tmp_path, filter_date=thuong_payload["ngay_ket_thuc"])
-                    storage.save_category_report(
-                        mtkm_payload["ngay"], mtkm_payload["ten_st"], mtkm_payload, _now_vn_time_str()
-                    )
+                    ds_ngay, _p = _luu_mtkm_tat_ca_ngay(tmp_path)
                     ngay_bd_disp = _dt.strptime(thuong_payload["ngay_bat_dau"], "%Y-%m-%d").strftime("%d/%m")
                     ngay_kt_disp = _dt.strptime(thuong_payload["ngay_ket_thuc"], "%Y-%m-%d").strftime("%d/%m")
                     reply = (
                         f"✅ Đã lưu dữ liệu THƯỞNG ({thuong_payload['so_ngay_da_qua']} ngày, "
-                        f"{ngay_bd_disp} - {ngay_kt_disp}) và cập nhật MTKM cho ngày {ngay_kt_disp}.\n"
-                        f"Tổng thưởng dự kiến: {thuong_payload['tong_thuong_du_kien']:,.0f} đ\n\n"
-                        f"Gõ \"TD\"/\"THƯỞNG\" hoặc \"MTKM\" để xem báo cáo tương ứng."
-                    ).replace(",", ".")
+                        f"{ngay_bd_disp} - {ngay_kt_disp}).\n"
+                        f"Tổng thưởng dự kiến: {thuong_payload['tong_thuong_du_kien']:,.0f} đ".replace(",", ".")
+                        + "\n" + _tin_xac_nhan_mtkm(ds_ngay)
+                        + "\n\nGõ \"TD\"/\"THƯỞNG\" hoặc \"MTKM\" để xem báo cáo tương ứng."
+                    )
                     reply_text(messaging_api, event.reply_token, reply)
                 else:
-                    # File 1 ngay -> bao cao nganh hang (MTKM) nhu cu
-                    payload = read_category_rows(tmp_path)
-                    storage.save_category_report(
-                        payload["ngay"], payload["ten_st"], payload, _now_vn_time_str()
-                    )
-                    date_display = _dt.strptime(payload["ngay"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    # File 1 ngày -> lưu ngày đó (ghi đè nếu nạp lại), bot tự cộng dồn
+                    ds_ngay, _p = _luu_mtkm_tat_ca_ngay(tmp_path)
                     reply = (
-                        f"✅ Đã lưu dữ liệu NGÀNH HÀNG ngày {date_display}.\n"
-                        f"Nấm: {payload['nam']['doanh_thu']:,.0f} đ | "
-                        f"Nước giặt 888: {payload['nuoc_giat_888']['sl']:.0f} túi | "
-                        f"C2: {payload['c2']['tong_sl']:.0f} sp\n\n"
-                        f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo."
-                    ).replace(",", ".")
+                        "✅ " + _tin_xac_nhan_mtkm(ds_ngay)
+                        + "\n\nGõ \"MTKM\" để xem thẻ báo cáo."
+                    )
                     reply_text(messaging_api, event.reply_token, reply)
             elif file_type == "stock":
                 stock_payload = read_stock_rows(tmp_path)

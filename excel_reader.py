@@ -166,140 +166,52 @@ NGANH_HANG_GROUPS = [
     ("Thủy Hải Sản", ["Thủy Hải Sản Các Loại"]),
 ]
 
-def read_category_rows(input_path, filter_date=None):
-    """Đọc file chi tiết ngành hàng, trả về dict tổng hợp:
-    {
-        "ngay": "2026-10-02",
-        "ten_st": "BHX_STR_CLD - Thửa 1289 An Nghiệp",
-        "nam": {"doanh_thu": 320952},
-        "c2": {
-            "items": [{"ten": "...", "sl": 2, "thanh_tien": ...}, ...],
-            "tong_sl": 4,
-            "tong_tien": ...,
-        },
-        "nuoc_giat_888": {
-            "ten": "Nước giặt xả 888 hương phấn thơm túi 3.2kg",
-            "sl": 2,
-            "thanh_tien": ...,
-            "so_ngay_ca_thang": 31,
-            "du_kien_cuoi_thang": 62.0,
-        },
-        "nganh_hang": {"items": [...], "tong_tien": ...},
+def _parse_ngay_xuat(ngay_val):
+    """Chuẩn hóa ô "Ngày xuất" về chuỗi "YYYY-MM-DD".
+    Nhận cả kiểu datetime của Excel lẫn chuỗi "dd/mm/yyyy" hoặc "yyyy-mm-dd"."""
+    if isinstance(ngay_val, datetime):
+        return ngay_val.strftime("%Y-%m-%d")
+    if not ngay_val:
+        return None
+    s = str(ngay_val).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return s
+
+
+def _empty_day_acc():
+    return {
+        "ten_st": None,
+        "nam": 0.0,
+        "c2": {ten: {"sl": 0.0, "thanh_tien": 0.0} for ten, _ in C2_TARGETS},
+        "ng888_sl": 0.0,
+        "ng888_tien": 0.0,
+        "nganh_hang": {},
     }
 
-    filter_date: nếu file trải nhiều ngày (vd dùng chung cho báo cáo thưởng),
-    truyền vào "YYYY-MM-DD" để CHỈ lấy đúng ngày đó (dùng cho MTKM — luôn là
-    dữ liệu 1 ngày, lấy đúng ngày mới nhất anh cập nhật, KHÔNG lũy kế nhiều
-    ngày). Để None nếu file vốn đã chỉ có 1 ngày.
-    """
+
+def _finish_day_payload(ngay_str, acc):
     import calendar
-
-    wb = openpyxl.load_workbook(input_path, data_only=True)
-    ws = wb.worksheets[0]
-    header_row = list(ws[1])
-    col_idx = {key: _find_col_index(header_row, label) for key, label in CATEGORY_COL.items()}
-    missing = [k for k, v in col_idx.items() if v is None]
-    if missing:
-        raise ValueError(
-            f"Không tìm thấy các cột: {[CATEGORY_COL[m] for m in missing]}. "
-            "Kiểm tra lại file có đúng định dạng chi tiết ngành hàng không."
-        )
-
-    def cell(r, key):
-        return ws.cell(row=r, column=col_idx[key]).value
-
-    ngay_str = None
-    ten_st = None
-
-    nam_total = 0.0
-
-    # gộp theo tên sản phẩm để không lặp dòng trùng
-    c2_map = {ten: {"sl": 0.0, "thanh_tien": 0.0} for ten, _ in C2_TARGETS}
-    nuoc_giat_sl = 0.0
-    nuoc_giat_tien = 0.0
-    nganh_hang_map = {}  # ten_nganh_hang -> thanh_tien (tổng doanh thu toàn bộ ngành hàng)
-
-    for r in range(2, ws.max_row + 1):
-        ten_sp = cell(r, "ten_sp")
-        if ten_sp is None:
-            continue
-        ten_sp_str = str(ten_sp).strip()
-        ten_sp_upper = ten_sp_str.upper()
-
-        ngay_val = cell(r, "ngay")
-        row_ngay_str = None
-        if isinstance(ngay_val, datetime):
-            row_ngay_str = ngay_val.strftime("%Y-%m-%d")
-        elif ngay_val:
-            row_ngay_str = str(ngay_val)[:10]
-
-        if filter_date is not None:
-            if row_ngay_str != filter_date:
-                continue
-            ngay_str = filter_date
-        elif ngay_str is None and row_ngay_str:
-            ngay_str = row_ngay_str
-
-        if ten_st is None:
-            v = cell(r, "ten_st")
-            if v:
-                ten_st = str(v).strip()
-
-        sl_thuc_xuat = float(cell(r, "sl_thuc_xuat") or 0)
-        thanh_tien = float(cell(r, "thanh_tien") or 0)
-        nhom_hang = str(cell(r, "nhom_hang") or "").strip()
-        ten_hang = str(cell(r, "ten_hang") or "").strip().upper()
-        don_vi = cell(r, "don_vi")
-        hinh_thuc = str(cell(r, "hinh_thuc_xuat") or "").strip().upper()
-        la_tang = "TẶNG" in hinh_thuc
-
-        # ---- NẤM ----
-        if nhom_hang == "Nấm Các Loại":
-            nam_total += thanh_tien
-
-        # ---- TỔNG DOANH THU THEO NGÀNH HÀNG (tất cả ngành hàng) ----
-        nganh_hang = str(cell(r, "nganh_hang") or "").strip()
-        if nganh_hang:
-            nganh_hang_map[nganh_hang] = nganh_hang_map.get(nganh_hang, 0.0) + thanh_tien
-
-        # ---- C2 CÁC LOẠI (chỉ 2 sản phẩm theo dõi, không tính hàng tặng) ----
-        if not la_tang and sl_thuc_xuat > 0 and (ten_hang == "C2" or "C2" in ten_sp_upper):
-            for ten, keywords in C2_TARGETS:
-                if all(kw in ten_sp_upper for kw in keywords):
-                    c2_map[ten]["sl"] += sl_thuc_xuat
-                    c2_map[ten]["thanh_tien"] += thanh_tien
-                    break
-
-        # ---- NƯỚC GIẶT 888 (1 sản phẩm, đơn vị gốc túi, không quy đổi) ----
-        if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
-            nuoc_giat_sl += sl_thuc_xuat
-            nuoc_giat_tien += thanh_tien
-
-    if ngay_str is None:
-        raise ValueError("Không tìm thấy dữ liệu ngày trong file.")
 
     c2_items = [
         {"ten": ten, "sl": v["sl"], "thanh_tien": v["thanh_tien"]}
-        for ten, v in c2_map.items()
+        for ten, v in acc["c2"].items()
         if v["sl"] > 0
     ]
-
     nganh_hang_items = [
         {"ten": ten, "thanh_tien": tt}
-        for ten, tt in sorted(nganh_hang_map.items(), key=lambda x: -x[1])
+        for ten, tt in sorted(acc["nganh_hang"].items(), key=lambda x: -x[1])
     ]
-
-    # Dự kiến đến hết tháng cho Nước giặt 888: lấy đúng SL bán của 1 ngày
-    # (ngày MTKM, KHÔNG lũy kế) nhân với số ngày của cả tháng — theo đúng
-    # cách anh Quí đã chốt ở bản demo.
     ngay_dt = datetime.strptime(ngay_str, "%Y-%m-%d")
     so_ngay_ca_thang = calendar.monthrange(ngay_dt.year, ngay_dt.month)[1]
-    du_kien_cuoi_thang = nuoc_giat_sl * so_ngay_ca_thang if nuoc_giat_sl > 0 else 0.0
-
+    sl888 = acc["ng888_sl"]
     return {
         "ngay": ngay_str,
-        "ten_st": ten_st or "—",
-        "nam": {"doanh_thu": nam_total},
+        "ten_st": acc["ten_st"] or "—",
+        "nam": {"doanh_thu": acc["nam"]},
         "c2": {
             "items": c2_items,
             "tong_sl": sum(i["sl"] for i in c2_items),
@@ -307,16 +219,106 @@ def read_category_rows(input_path, filter_date=None):
         },
         "nuoc_giat_888": {
             "ten": NUOC_GIAT_888_TEN,
-            "sl": nuoc_giat_sl,
-            "thanh_tien": nuoc_giat_tien,
+            "sl": sl888,
+            "thanh_tien": acc["ng888_tien"],
             "so_ngay_ca_thang": so_ngay_ca_thang,
-            "du_kien_cuoi_thang": du_kien_cuoi_thang,
+            "du_kien_cuoi_thang": sl888 * so_ngay_ca_thang if sl888 > 0 else 0.0,
         },
         "nganh_hang": {
             "items": nganh_hang_items,
             "tong_tien": sum(i["thanh_tien"] for i in nganh_hang_items),
         },
     }
+
+
+def read_category_rows_by_date(input_path):
+    """Đọc file "doanh thu chi tiết" (POS 76) MỘT LẦN, tách số liệu theo TỪNG
+    NGÀY có trong file. Trả về dict {"YYYY-MM-DD": payload_ngay}, mỗi
+    payload_ngay có đúng cấu trúc như read_category_rows() trả về.
+
+    (05/10/2026) Dùng cho thẻ MTKM mới có LŨY KẾ: file nhiều ngày (vd từ đầu
+    tháng) được tách ra lưu đủ từng ngày, để bot tự cộng dồn — anh không cần
+    nạp lại từ đầu tháng, chỉ cần nạp file ngày mới."""
+    wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
+    ws = wb.worksheets[0]
+    rows_iter = ws.iter_rows(values_only=True)
+    header = [str(h).strip() if h is not None else "" for h in next(rows_iter)]
+    col_idx = {}
+    for key, label in CATEGORY_COL.items():
+        col_idx[key] = header.index(label) if label in header else None
+    missing = [k for k, v in col_idx.items() if v is None]
+    if missing:
+        wb.close()
+        raise ValueError(
+            f"Không tìm thấy các cột: {[CATEGORY_COL[m] for m in missing]}. "
+            "Kiểm tra lại file có đúng định dạng chi tiết ngành hàng không."
+        )
+
+    theo_ngay = {}
+    for row in rows_iter:
+        def cell(key):
+            i = col_idx[key]
+            return row[i] if i < len(row) else None
+
+        ten_sp = cell("ten_sp")
+        if ten_sp is None:
+            continue
+        ngay_str = _parse_ngay_xuat(cell("ngay"))
+        if not ngay_str:
+            continue
+        acc = theo_ngay.get(ngay_str)
+        if acc is None:
+            acc = theo_ngay[ngay_str] = _empty_day_acc()
+
+        ten_sp_upper = str(ten_sp).strip().upper()
+        if acc["ten_st"] is None and cell("ten_st"):
+            acc["ten_st"] = str(cell("ten_st")).strip()
+
+        sl_thuc_xuat = float(cell("sl_thuc_xuat") or 0)
+        thanh_tien = float(cell("thanh_tien") or 0)
+        nhom_hang = str(cell("nhom_hang") or "").strip()
+        ten_hang = str(cell("ten_hang") or "").strip().upper()
+        hinh_thuc = str(cell("hinh_thuc_xuat") or "").strip().upper()
+        la_tang = "TẶNG" in hinh_thuc
+
+        # ---- NẤM ----
+        if nhom_hang == "Nấm Các Loại":
+            acc["nam"] += thanh_tien
+
+        # ---- TỔNG DOANH THU THEO NGÀNH HÀNG (tất cả ngành hàng) ----
+        nganh_hang = str(cell("nganh_hang") or "").strip()
+        if nganh_hang:
+            acc["nganh_hang"][nganh_hang] = acc["nganh_hang"].get(nganh_hang, 0.0) + thanh_tien
+
+        # ---- C2 CÁC LOẠI (giữ lại cho các báo cáo khác, thẻ MTKM mới không hiện) ----
+        if not la_tang and sl_thuc_xuat > 0 and (ten_hang == "C2" or "C2" in ten_sp_upper):
+            for ten, keywords in C2_TARGETS:
+                if all(kw in ten_sp_upper for kw in keywords):
+                    acc["c2"][ten]["sl"] += sl_thuc_xuat
+                    acc["c2"][ten]["thanh_tien"] += thanh_tien
+                    break
+
+        # ---- NƯỚC GIẶT 888 (1 sản phẩm, đơn vị gốc túi, không quy đổi) ----
+        if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
+            acc["ng888_sl"] += sl_thuc_xuat
+            acc["ng888_tien"] += thanh_tien
+    wb.close()
+
+    return {ngay: _finish_day_payload(ngay, acc) for ngay, acc in theo_ngay.items()}
+
+
+def read_category_rows(input_path, filter_date=None):
+    """Đọc file chi tiết ngành hàng, trả về payload của 1 ngày (cấu trúc như
+    _finish_day_payload). filter_date="YYYY-MM-DD" để lấy đúng ngày đó trong
+    file nhiều ngày; để None thì lấy ngày MỚI NHẤT có trong file."""
+    theo_ngay = read_category_rows_by_date(input_path)
+    if not theo_ngay:
+        raise ValueError("Không tìm thấy dữ liệu ngày trong file.")
+    if filter_date is not None:
+        if filter_date not in theo_ngay:
+            raise ValueError(f"Không có dữ liệu ngày {filter_date} trong file.")
+        return theo_ngay[filter_date]
+    return theo_ngay[max(theo_ngay)]
 
 # ---------------------------------------------------------------------------
 # LOẠI 3: FILE TỒN KHO (BC tồn theo model)

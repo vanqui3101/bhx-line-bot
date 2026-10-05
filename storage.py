@@ -215,6 +215,21 @@ def get_latest_category_report():
         return None, None, None, None
     ngay, ten_st, payload_json, gio = row
     return ngay, ten_st, json.loads(payload_json), gio
+def get_category_reports_range(ngay_tu, ngay_den):
+    """(05/10/2026) Trả về dict {ngay: payload_dict} của MỌI ngày đã lưu trong
+    khoảng [ngay_tu, ngay_den] (chuỗi "YYYY-MM-DD"). Dùng cho thẻ MTKM lũy kế.
+    Siêu thị chỉ có 1 (8363) nên nếu trùng ngày lấy bản lưu sau cùng."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT ngay, payload_json FROM category_reports "
+        "WHERE ngay >= ? AND ngay <= ? ORDER BY ngay, rowid",
+        (ngay_tu, ngay_den),
+    )
+    out = {}
+    for ngay, payload_json in cur.fetchall():
+        out[ngay] = json.loads(payload_json)
+    conn.close()
+    return out
 # ---------------------------------------------------------------------------
 # TỒN KHO (BC tồn theo model) - mới thêm
 # ---------------------------------------------------------------------------

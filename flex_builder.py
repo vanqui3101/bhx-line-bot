@@ -376,69 +376,170 @@ def _mtkm_forecast_row(label, value_text):
         ],
     }
 
-def build_category_flex_message(ngay, ten_st, payload):
-    nam_dt = payload["nam"]["doanh_thu"]
+# ---------------------------------------------------------------------------
+# THẺ MTKM BẢN MỚI (05/10/2026) — 3 khối gọn: NẤM / THI ĐUA TUẦN / NƯỚC GIẶT 888
+# Có LŨY KẾ + MỤC TIÊU NGÀY (phần thiếu tự dồn sang các ngày sau). Số liệu
+# tính sẵn ở mtkm_tracker.tinh_mtkm(); hàm dưới đây CHỈ vẽ thẻ.
+# Màu theo đúng bản demo anh Quí duyệt: header vàng gold, nền trắng, khối xám nhạt.
+# ---------------------------------------------------------------------------
+MTKM_GOLD_TEXT = "#412402"
+MTKM_GOLD_SUB = "#633806"
+MTKM_BAR = "#BA7517"
+MTKM_HL_BG = "#FAEEDA"
+MTKM_BOX_BG = "#F5F5F5"
 
-    c2 = payload["c2"]
-    c2_items = [(it["ten"], _fmt_int(it["sl"])) for it in c2["items"]]
 
-    ng888 = payload.get("nuoc_giat_888") or {}
-    ng888_sl = ng888.get("sl", 0) or 0
-    ng888_items = [(ng888.get("ten", "Nước giặt xả 888 hương phấn thơm túi 3.2kg"), _fmt_int(ng888_sl))] if ng888_sl > 0 else []
+def _tr(n, so_le=1):
+    """Đồng -> 'x,y tr'."""
+    return f"{(n or 0) / 1_000_000:.{so_le}f}".replace(".", ",") + " tr"
 
-    nuoc_giat_box = _mtkm_section_table(
-        "NƯỚC GIẶT 888",
-        None,
-        ng888_items,
-        "Không có dữ liệu bán trong ngày",
-    )
-    if ng888_sl > 0 and ng888.get("du_kien_cuoi_thang") is not None:
-        so_ngay_ca_thang = ng888.get("so_ngay_ca_thang")
-        nhan = f"Dự kiến đến hết tháng (x{so_ngay_ca_thang} ngày)" if so_ngay_ca_thang else "Dự kiến đến hết tháng"
-        nuoc_giat_box["contents"].append(
-            _mtkm_forecast_row(nhan, f"~{_fmt_int(ng888['du_kien_cuoi_thang'])} túi")
-        )
 
-    sections = [
-        _category_section_simple("NẤM", "Doanh thu (trong ngày)", f"{_fmt_money(nam_dt)} đ", value_color=MTKM_VALUE),
-        _mtkm_section_table(
-            "C2 CÁC LOẠI",
-            None,
-            c2_items,
-            "Không có dữ liệu bán trong ngày",
-        ),
-        nuoc_giat_box,
+def _mtkm_row(label, value_text, value_color=BLACK, bold=False):
+    return {
+        "type": "box", "layout": "horizontal", "margin": "sm",
+        "contents": [
+            {"type": "text", "text": label, "size": "sm", "color": GRAY, "flex": 6, "wrap": True},
+            {"type": "text", "text": value_text, "size": "sm", "color": value_color,
+             "weight": "bold" if bold else "regular", "flex": 5, "align": "end", "wrap": True},
+        ],
+    }
+
+
+def _mtkm_bar(pct):
+    w = max(1, min(100, int(round(pct or 0))))
+    return {
+        "type": "box", "layout": "vertical", "margin": "md", "height": "6px",
+        "backgroundColor": DIVIDER, "cornerRadius": "3px",
+        "contents": [{
+            "type": "box", "layout": "vertical", "width": f"{w}%", "height": "6px",
+            "backgroundColor": MTKM_BAR, "cornerRadius": "3px",
+            "contents": [{"type": "filler"}],
+        }],
+    }
+
+
+def _mtkm_khoi(icon_title, sub_title, so, fmt, don_vi_con_lai, ghi_chu=None):
+    """Vẽ 1 khối (Nấm / Tuần / 888). fmt: hàm định dạng số."""
+    thieu = so["con_thieu_hom_nay"]
+    thieu_text = f"-{fmt(thieu)}" if thieu > 0 else "Đã đủ ✓"
+    thieu_color = RED if thieu > 0 else GREEN
+
+    o = [
+        _mtkm_row("Hôm nay", f"{fmt(so['hom_nay'])} / {fmt(so['muc_tieu_hom_nay'])}", BLACK, True),
+        _mtkm_row("Còn thiếu hôm nay", thieu_text, thieu_color, True),
+        {"type": "separator", "margin": "md", "color": DIVIDER},
+        _mtkm_row(don_vi_con_lai["luy_ke_label"], f"{fmt(so['luy_ke'])} / {fmt(so['muc_tieu'])}", BLACK),
+        _mtkm_bar(so["pct"]),
+        {
+            "type": "box", "layout": "horizontal", "margin": "sm",
+            "contents": [
+                {"type": "text", "text": f"{so['pct']:.0f}%", "size": "xs", "color": GRAY, "flex": 3},
+                {"type": "text",
+                 "text": (f"Còn {fmt(so['con_lai'])} / {so['so_ngay_sau_hom_nay']} ngày"
+                          if so["so_ngay_sau_hom_nay"] > 0 else "Ngày cuối kỳ"),
+                 "size": "xs", "color": GRAY, "flex": 7, "align": "end", "wrap": True},
+            ],
+        },
     ]
+    khoi = [
+        {"type": "text", "text": icon_title, "size": "md", "weight": "bold", "color": BLACK, "wrap": True},
+        {"type": "text", "text": sub_title, "size": "xs", "color": GRAY, "margin": "xs", "wrap": True},
+        {"type": "box", "layout": "vertical", "margin": "md", "paddingAll": "10px",
+         "backgroundColor": MTKM_BOX_BG, "cornerRadius": "8px", "contents": o},
+    ]
+    if so["mai_can"] is not None:
+        khoi.append({
+            "type": "box", "layout": "horizontal", "margin": "sm", "paddingAll": "8px",
+            "backgroundColor": MTKM_HL_BG, "cornerRadius": "8px",
+            "contents": [
+                {"type": "text", "text": "Mai cần (nếu chốt số này)", "size": "sm", "color": MTKM_GOLD_SUB, "flex": 6, "wrap": True},
+                {"type": "text", "text": fmt(so["mai_can"]), "size": "md", "weight": "bold",
+                 "color": MTKM_GOLD_TEXT, "flex": 4, "align": "end"},
+            ],
+        })
+    if ghi_chu:
+        khoi.append({"type": "text", "text": ghi_chu, "size": "xs", "color": RED, "margin": "sm", "wrap": True})
+    return {"type": "box", "layout": "vertical", "margin": "lg", "contents": khoi}
 
-    body_contents = []
-    for i, sec in enumerate(sections):
-        body_contents.append(sec)
-        if i < len(sections) - 1:
-            body_contents.append({"type": "separator", "margin": "lg", "color": DIVIDER})
 
-    contents = {
+def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
+    """Thẻ MTKM. kq = kết quả mtkm_tracker.tinh_mtkm(ngay). Nếu kq None (chưa
+    có cấu hình mục tiêu tháng) thì chỉ hiện số trong ngày."""
+    body = []
+
+    def fmt_nam(x):
+        return _tr(x, 2)
+
+    def fmt_tuan(x):
+        return _tr(x, 1)
+
+    def fmt_tui(x):
+        return f"{int(round(x or 0))} túi"
+
+    if kq and kq.get("nam"):
+        ghi = (f"⚠ Chưa có dữ liệu ngày {', '.join(kq['ngay_thieu'])} (đang tính = 0)"
+               if kq.get("ngay_thieu") else None)
+        body.append(_mtkm_khoi(
+            "🍄 DOANH THU NẤM",
+            f"{_fmt_date_short(kq['tu_thang'])} – {_fmt_date_short(kq['den_thang'])} · mục tiêu tháng {fmt_nam(kq['nam']['muc_tieu'])}",
+            kq["nam"], fmt_nam, {"luy_ke_label": "Lũy kế tháng"}, ghi,
+        ))
+    else:
+        body.append(_category_section_simple(
+            "🍄 DOANH THU NẤM", "Hôm nay", f"{_fmt_money(payload['nam']['doanh_thu'])} đ", value_color=BLACK,
+        ))
+
+    body.append({"type": "separator", "margin": "lg", "color": DIVIDER})
+    if kq and kq.get("tuan"):
+        t = kq["tuan"]
+        sub = (f"{_fmt_date_short(t['tu'])} – {_fmt_date_short(t['den'])} · "
+               f"ngày {t['ngay_thu']}/{t['tong_so_ngay']} · mục tiêu M2")
+        if t.get("trang_thai"):
+            sub += f" · {t['trang_thai']}"
+        ghi = (f"⚠ Chưa có dữ liệu ngày {', '.join(t['ngay_thieu'])} (đang tính = 0)"
+               if t.get("ngay_thieu") else None)
+        body.append(_mtkm_khoi(
+            f"🎯 THI ĐUA {t['ten']} · {t['nganh']}", sub, t, fmt_tuan, {"luy_ke_label": "Lũy kế tuần"}, ghi,
+        ))
+    else:
+        body.append({
+            "type": "box", "layout": "vertical", "margin": "lg",
+            "contents": [
+                {"type": "text", "text": "🎯 THI ĐUA TUẦN", "size": "md", "weight": "bold", "color": BLACK},
+                {"type": "text", "text": (kq or {}).get("tuan_ghi_chu") or "Chưa có tuần thi đua",
+                 "size": "sm", "color": GRAY, "margin": "sm", "wrap": True},
+            ],
+        })
+
+    body.append({"type": "separator", "margin": "lg", "color": DIVIDER})
+    if kq and kq.get("ng888"):
+        body.append(_mtkm_khoi(
+            "🧺 NƯỚC GIẶT 888 · 3,2kg",
+            f"{_fmt_date_short(kq['tu_thang'])} – {_fmt_date_short(kq['den_thang'])} · mục tiêu tháng {fmt_tui(kq['ng888']['muc_tieu'])}",
+            kq["ng888"], fmt_tui, {"luy_ke_label": "Lũy kế tháng"},
+        ))
+    else:
+        sl = (payload.get("nuoc_giat_888") or {}).get("sl", 0) or 0
+        body.append(_category_section_simple("🧺 NƯỚC GIẶT 888", "Hôm nay", fmt_tui(sl), value_color=BLACK))
+
+    phu_de = f"{ten_st or ''}".strip()
+    dong_ngay = _fmt_date_display(ngay) + (f" · cập nhật {gio}" if gio else "")
+    return {
         "type": "bubble",
         "size": "giga",
         "header": {
-            "type": "box",
-            "layout": "vertical",
-            "backgroundColor": MTKM_HEADER_BG,
-            "paddingAll": "16px",
+            "type": "box", "layout": "vertical", "backgroundColor": YELLOW, "paddingAll": "16px",
             "contents": [
-                {"type": "text", "text": "BÁO CÁO NGÀNH HÀNG", "color": "#FFFFFF", "weight": "bold", "size": "lg"},
-                {"type": "text", "text": ten_st or "", "color": "#FFFFFF", "size": "sm", "margin": "sm", "wrap": True},
-                {"type": "text", "text": _fmt_date_display(ngay), "color": MTKM_SUBTITLE, "size": "xs", "margin": "xs"},
+                {"type": "text", "text": "BÁO CÁO NGÀNH HÀNG", "color": MTKM_GOLD_TEXT, "weight": "bold", "size": "lg"},
+                {"type": "text", "text": phu_de or " ", "color": MTKM_GOLD_SUB, "size": "sm", "margin": "sm", "wrap": True},
+                {"type": "text", "text": dong_ngay, "color": MTKM_GOLD_SUB, "size": "xs", "margin": "xs"},
             ],
         },
         "body": {
-            "type": "box",
-            "layout": "vertical",
-            "paddingAll": "16px",
-            "backgroundColor": PAGE_BG,
-            "contents": body_contents,
+            "type": "box", "layout": "vertical", "paddingAll": "16px",
+            "backgroundColor": PAGE_BG, "contents": body,
         },
     }
-    return contents
 
 # ---------------------------------------------------------------------------
 # BÁO CÁO THƯỞNG (FRESH + FMCG) — lệnh "TD" / "THƯỞNG"

@@ -165,14 +165,18 @@ def _context_nganh_hang():
     ngay, ten_st, payload, gio = storage.get_latest_category_report()
     if not ngay or not payload:
         return "Chưa có dữ liệu ngành hàng (MTKM) nào được lưu."
-    nam = payload.get("nam", {}) or {}
-    banh = payload.get("banh_trung_thu", {}) or {}
-    c2 = payload.get("c2", {}) or {}
+    # (05/10/2026) Thẻ MTKM mới: Nấm / Thi đua FMCG tuần / Nước giặt 888, có lũy kế + mục tiêu ngày
+    try:
+        import mtkm_tracker
+        tom_tat = mtkm_tracker.tom_tat_text(mtkm_tracker.tinh_mtkm(ngay))
+    except Exception:
+        nam = payload.get("nam", {}) or {}
+        ng888 = payload.get("nuoc_giat_888", {}) or {}
+        tom_tat = (f"Nấm hôm nay: {_tien(nam.get('doanh_thu', 0))}\n"
+                   f"Nước giặt 888 hôm nay: {ng888.get('sl', 0):.0f} túi")
     return (
-        f"Báo cáo ngành hàng (MTKM) mới nhất — ngày {ngay}:\n"
-        f"  Nấm: {_tien(nam.get('doanh_thu', 0))}\n"
-        f"  Bánh trung thu: {banh.get('tong_sl', 0):.0f} cái\n"
-        f"  C2: {c2.get('tong_chai', 0):.0f} chai"
+        f"Báo cáo ngành hàng (MTKM) mới nhất — ngày {ngay}"
+        + (f", cập nhật lúc {gio}" if gio else "") + ":\n" + tom_tat
     )
 
 
