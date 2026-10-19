@@ -1298,24 +1298,18 @@ def handle_text_message(event):
         # Lệnh DT — báo cáo doanh thu
         if DT_COMMAND_PATTERN.match(text):
             try:
-                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
-            except Exception:
-                traceback.print_exc()
-            try:
                 result = build_revenue_report_messages(_base_url())
                 if result is None:
-                    push_text(messaging_api, target_id, "Chưa có dữ liệu doanh thu nào được lưu. Anh gửi file Excel doanh thu trước nhé.")
+                    notify_text(messaging_api, event.reply_token, target_id, "Chưa có dữ liệu doanh thu nào được lưu. Anh gửi file Excel doanh thu trước nhé.")
                     return
                 flex_message = result
-                messaging_api.push_message(
-                    PushMessageRequest(to=target_id, messages=[flex_message])
-                )
+                send_card_with_ack(messaging_api, event.reply_token, target_id, flex_message)
                 storage.save_last_command(target_id, "DT", _now_vn_time_str())
                 _xoa_anh_gan_nhat(target_id)
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo doanh thu: {e}")
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo báo cáo doanh thu: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1339,45 +1333,33 @@ def handle_text_message(event):
         # Lệnh MỤC TIÊU KHUYẾN MÃI — báo cáo ngành hàng
         if MTKM_COMMAND_PATTERN.match(text):
             try:
-                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
-            except Exception:
-                traceback.print_exc()
-            try:
                 flex_message = build_category_report_message()
                 if flex_message is None:
-                    push_text(messaging_api, target_id, "Chưa có dữ liệu ngành hàng nào được lưu. Anh gửi file Excel chi tiết ngành hàng trước nhé.")
+                    notify_text(messaging_api, event.reply_token, target_id, "Chưa có dữ liệu ngành hàng nào được lưu. Anh gửi file Excel chi tiết ngành hàng trước nhé.")
                     return
-                messaging_api.push_message(
-                    PushMessageRequest(to=target_id, messages=[flex_message])
-                )
+                send_card_with_ack(messaging_api, event.reply_token, target_id, flex_message)
                 storage.save_last_command(target_id, "MTKM", _now_vn_time_str())
                 _xoa_anh_gan_nhat(target_id)
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo ngành hàng: {e}")
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo báo cáo ngành hàng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
         # Lệnh TD / THƯỞNG — báo cáo thưởng FRESH + FMCG
         if TD_COMMAND_PATTERN.match(text):
             try:
-                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
-            except Exception:
-                traceback.print_exc()
-            try:
                 flex_message = build_thuong_report_message()
                 if flex_message is None:
-                    push_text(messaging_api, target_id, "Chưa có dữ liệu thưởng nào được lưu. Anh gửi file Excel doanh thu chi tiết (từ đầu tháng đến hiện tại) trước nhé.")
+                    notify_text(messaging_api, event.reply_token, target_id, "Chưa có dữ liệu thưởng nào được lưu. Anh gửi file Excel doanh thu chi tiết (từ đầu tháng đến hiện tại) trước nhé.")
                     return
-                messaging_api.push_message(
-                    PushMessageRequest(to=target_id, messages=[flex_message])
-                )
+                send_card_with_ack(messaging_api, event.reply_token, target_id, flex_message)
                 storage.save_last_command(target_id, "TD", _now_vn_time_str())
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo thưởng: {e}")
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo báo cáo thưởng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1386,14 +1368,10 @@ def handle_text_message(event):
         # đã gửi cho MTKM/TD — không cần gửi thêm file nào khác.
         if TTFF_COMMAND_PATTERN.match(text):
             try:
-                reply_text(messaging_api, event.reply_token, "Em gửi Anh và Team 8363 luôn ạ")
-            except Exception:
-                traceback.print_exc()
-            try:
                 ten_st = "BHX_STR_CLD - Thửa 1289 An Nghiệp"
                 payload = thuong_freshfmcg.build_report_payload(ten_st)
                 if payload is None:
-                    push_text(messaging_api, target_id,
+                    notify_text(messaging_api, event.reply_token, target_id,
                                "Chưa có dữ liệu cho báo cáo này. Anh gửi file Excel \"doanh thu chi tiết\" trước nhé.")
                     return
                 bubble = thuong_freshfmcg.build_freshfmcg_flex_message(payload)
@@ -1401,14 +1379,12 @@ def handle_text_message(event):
                     alt_text="Tiến độ thưởng Fresh & FMCG",
                     contents=FlexContainer.from_dict(bubble),
                 )
-                messaging_api.push_message(
-                    PushMessageRequest(to=target_id, messages=[flex_message])
-                )
+                send_card_with_ack(messaging_api, event.reply_token, target_id, flex_message)
                 storage.save_last_command(target_id, "TTFF", _now_vn_time_str())
             except Exception as e:
                 traceback.print_exc()
                 try:
-                    push_text(messaging_api, target_id, f"Có lỗi khi tạo báo cáo tiến độ thưởng: {e}")
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo báo cáo tiến độ thưởng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1652,6 +1628,31 @@ def push_text(messaging_api, target_id, text):
     messaging_api.push_message(
         PushMessageRequest(to=target_id, messages=[TextMessage(text=text)])
     )
+def notify_text(messaging_api, reply_token, target_id, text):
+    """Gửi text ưu tiên bằng REPLY (miễn phí, không tính hạn mức tin nhắn tháng
+    của LINE OA); chỉ khi reply lỗi (token hết hạn...) mới thử push."""
+    try:
+        reply_text(messaging_api, reply_token, text)
+    except Exception:
+        traceback.print_exc()
+        push_text(messaging_api, target_id, text)
+def send_card_with_ack(messaging_api, reply_token, target_id, flex_message):
+    """Gửi câu xác nhận + thẻ báo cáo trong CÙNG 1 reply (miễn phí). Trước đây
+    thẻ gửi bằng push nên khi LINE OA hết hạn mức tin nhắn tháng (HTTP 429
+    "You have reached your monthly limit") bot chỉ trả lời được câu xác nhận
+    mà không có thẻ. Nếu reply lỗi thì mới thử push như cũ."""
+    try:
+        messaging_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[TextMessage(text="Em gửi Anh và Team 8363 luôn ạ"), flex_message],
+            )
+        )
+    except Exception:
+        traceback.print_exc()
+        messaging_api.push_message(
+            PushMessageRequest(to=target_id, messages=[flex_message])
+        )
 def reply_text(messaging_api, reply_token, text):
     text = text[:4900]
     messaging_api.reply_message(
