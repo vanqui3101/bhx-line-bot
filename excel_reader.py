@@ -190,6 +190,7 @@ def _empty_day_acc():
         "ng888_sl": 0.0,
         "ng888_tien": 0.0,
         "nganh_hang": {},
+        "phan_tich": {},
     }
 
 
@@ -228,6 +229,10 @@ def _finish_day_payload(ngay_str, acc):
             "items": nganh_hang_items,
             "tong_tien": sum(i["thanh_tien"] for i in nganh_hang_items),
         },
+        # (20/10/2026) Tổng tiền theo cột "Ngành hàng - Phân tích" (Trứng các
+        # loại, Thịt nhập khẩu... nằm lẫn trong ngành hàng gốc khác nên phải
+        # lấy theo cột này). Dùng cho thẻ MTKM mới.
+        "phan_tich": dict(acc["phan_tich"]),
     }
 
 
@@ -253,6 +258,8 @@ def read_category_rows_by_date(input_path):
             f"Không tìm thấy các cột: {[CATEGORY_COL[m] for m in missing]}. "
             "Kiểm tra lại file có đúng định dạng chi tiết ngành hàng không."
         )
+    # Cột không bắt buộc (file cũ có thể không có)
+    i_phan_tich = header.index("Ngành hàng - Phân tích") if "Ngành hàng - Phân tích" in header else None
 
     theo_ngay = {}
     for row in rows_iter:
@@ -289,6 +296,11 @@ def read_category_rows_by_date(input_path):
         nganh_hang = str(cell("nganh_hang") or "").strip()
         if nganh_hang:
             acc["nganh_hang"][nganh_hang] = acc["nganh_hang"].get(nganh_hang, 0.0) + thanh_tien
+
+        # ---- TỔNG THEO "NGÀNH HÀNG - PHÂN TÍCH" (Trứng, Thịt nhập khẩu...) ----
+        if i_phan_tich is not None and i_phan_tich < len(row) and row[i_phan_tich]:
+            pt = str(row[i_phan_tich]).strip()
+            acc["phan_tich"][pt] = acc["phan_tich"].get(pt, 0.0) + thanh_tien
 
         # ---- C2 CÁC LOẠI (giữ lại cho các báo cáo khác, thẻ MTKM mới không hiện) ----
         if not la_tang and sl_thuc_xuat > 0 and (ten_hang == "C2" or "C2" in ten_sp_upper):
