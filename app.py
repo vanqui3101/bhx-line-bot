@@ -827,26 +827,32 @@ except Exception:
     from datetime import timezone as _TzFixed, timedelta as _TdFixed
     _TZ_VN_SCHEDULER = _TzFixed(_TdFixed(hours=7))
 scheduler = BackgroundScheduler(timezone=_TZ_VN_SCHEDULER)
-scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0, timezone=_TZ_VN_SCHEDULER))
-scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0, timezone=_TZ_VN_SCHEDULER))
-# Ca sáng: THU NGÂN + FRESH -> 8h, 11h
-scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=8, minute=0, timezone=_TZ_VN_SCHEDULER))
-scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=11, minute=0, timezone=_TZ_VN_SCHEDULER))
-# Ca chiều: THU NGÂN + FRESH -> 15h, 17h, 19h
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=15, minute=0, timezone=_TZ_VN_SCHEDULER))
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=17, minute=0, timezone=_TZ_VN_SCHEDULER))
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", _noi_dung_thu_ngan_fresh),
-                   CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
-# FMCG sáng -> 10h (dùng đúng nội dung anh viết trong bài)
-scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h", None),
-                   CronTrigger(hour=10, minute=0, timezone=_TZ_VN_SCHEDULER))
-# FMCG chiều -> 19h (nội dung cố định)
-scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
-                   CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
+# (31/10/2026) Anh Quí yêu cầu: TỪ THÁNG 11 HỦY TOÀN BỘ NHẮC TỰ ĐỘNG
+# (nhắc lịch hỗ trợ 20h/21h + nhắc phân line 8h/10h/11h/15h/17h/19h).
+# Bài phân line vẫn được lưu bình thường (dùng cho "nhận xét mục tiêu").
+# Muốn bật lại: đổi BAT_NHAC_TU_DONG = True.
+BAT_NHAC_TU_DONG = False
+if BAT_NHAC_TU_DONG:
+    scheduler.add_job(lambda: send_support_reminder("20h"), CronTrigger(hour=20, minute=0, timezone=_TZ_VN_SCHEDULER))
+    scheduler.add_job(lambda: send_support_reminder("21h"), CronTrigger(hour=21, minute=0, timezone=_TZ_VN_SCHEDULER))
+    # Ca sáng: THU NGÂN + FRESH -> 8h, 11h
+    scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_8h", _noi_dung_thu_ngan_fresh),
+                       CronTrigger(hour=8, minute=0, timezone=_TZ_VN_SCHEDULER))
+    scheduler.add_job(lambda: send_phanline_reminder("sang", "thu_ngan_fresh", "sang_11h", _noi_dung_thu_ngan_fresh),
+                       CronTrigger(hour=11, minute=0, timezone=_TZ_VN_SCHEDULER))
+    # Ca chiều: THU NGÂN + FRESH -> 15h, 17h, 19h
+    scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_15h", _noi_dung_thu_ngan_fresh),
+                       CronTrigger(hour=15, minute=0, timezone=_TZ_VN_SCHEDULER))
+    scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_17h", _noi_dung_thu_ngan_fresh),
+                       CronTrigger(hour=17, minute=0, timezone=_TZ_VN_SCHEDULER))
+    scheduler.add_job(lambda: send_phanline_reminder("chieu", "thu_ngan_fresh", "chieu_19h", _noi_dung_thu_ngan_fresh),
+                       CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
+    # FMCG sáng -> 10h (dùng đúng nội dung anh viết trong bài)
+    scheduler.add_job(lambda: send_phanline_reminder("sang", "fmcg", "fmcg_sang_10h", None),
+                       CronTrigger(hour=10, minute=0, timezone=_TZ_VN_SCHEDULER))
+    # FMCG chiều -> 19h (nội dung cố định)
+    scheduler.add_job(lambda: send_phanline_reminder("chieu", "fmcg", "fmcg_chieu_19h", NOI_DUNG_FMCG_CHIEU),
+                       CronTrigger(hour=19, minute=0, timezone=_TZ_VN_SCHEDULER))
 # TỰ ĐỘNG KIỂM TRA GOOGLE DRIVE (MỚI 16/09/2026) — mỗi 4 tiếng 1 lần
 # (2h/6h/10h/14h/18h/22h giờ VN), tự tắt nếu chưa cấu hình GOOGLE_DRIVE_FOLDER_ID.
 scheduler.add_job(lambda: check_google_drive_for_new_files(),
@@ -900,8 +906,7 @@ try:
     _gio_nhac_thu = _gio_nhac_thu.replace(tzinfo=_tz_vn)
 except Exception:
     pass
-scheduler.add_job(_test_tao_phan_line_224, DateTrigger(run_date=_gio_tao_bai))
-scheduler.add_job(_test_nhac_phan_line_224, DateTrigger(run_date=_gio_nhac_thu))
+# (31/10/2026) Bỏ 2 lịch test 21-22/08 (đã quá hạn, không còn dùng)
 scheduler.start()
 # XÁC NHẬN GIỜ SCHEDULER LÚC KHỞI ĐỘNG (để đối chiếu ngay trên log Railway,
 # không cần đợi tới đúng khung giờ mới biết đúng/sai) — in giờ hệ thống
