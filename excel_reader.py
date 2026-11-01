@@ -193,6 +193,8 @@ def _empty_day_acc():
         "nganh_hang": {},
         "phan_tich": {},
         "heo_cp_kg": 0.0,
+        "c2_loc": 0.0,
+        "trung_vi": 0.0,
     }
 
 
@@ -237,6 +239,10 @@ def _finish_day_payload(ngay_str, acc):
         "phan_tich": dict(acc["phan_tich"]),
         # (01/11/2026) Sản lượng kg thịt heo C.P (tính cả da mỡ, quy đổi gói/túi theo gram)
         "heo_cp_kg": acc["heo_cp_kg"],
+        # (01/11/2026) C2 quy ra LỐC (thùng TH24 = 4 lốc, chai lẻ = 1/6 lốc) và
+        # TRỨNG quy ra VỈ (mỗi hộp/vỉ loại nào cũng = 1 vỉ, combo 2 hộp = 2 vỉ)
+        "c2_loc": acc["c2_loc"],
+        "trung_vi": acc["trung_vi"],
     }
 
 
@@ -313,6 +319,22 @@ def read_category_rows_by_date(input_path):
                     acc["c2"][ten]["sl"] += sl_thuc_xuat
                     acc["c2"][ten]["thanh_tien"] += thanh_tien
                     break
+
+        # ---- (01/11/2026) C2 quy ra LỐC cho bảng mục tiêu từng bạn ----
+        if not la_tang and re.search(r"(?<![A-Z0-9])C2(?![0-9])", ten_sp_upper):
+            don_vi_up = str(cell("don_vi") or "").strip().upper()
+            if don_vi_up == "THÙNG":
+                m_th = re.search(r"(?:TH|THÙNG)\s*(\d+)", ten_sp_upper)
+                acc["c2_loc"] += sl_thuc_xuat * ((int(m_th.group(1)) if m_th else 24) / 6)
+            elif don_vi_up == "CHAI":
+                acc["c2_loc"] += sl_thuc_xuat / 6
+            else:
+                acc["c2_loc"] += sl_thuc_xuat
+        # ---- (01/11/2026) TRỨNG quy ra VỈ ----
+        if (not la_tang and i_phan_tich is not None and i_phan_tich < len(row)
+                and str(row[i_phan_tich] or "").strip() == "Trứng Các Loại"):
+            m_cb = re.search(r"COMBO\s*(\d+)", ten_sp_upper)
+            acc["trung_vi"] += sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

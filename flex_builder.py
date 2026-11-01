@@ -620,8 +620,7 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
         body.append({"type": "text", "text": "Chưa có mục tiêu MTKM cho tháng này.", "size": "sm",
                      "color": GRAY, "margin": "md", "wrap": True})
 
-    ghi = ["Đơn vị: triệu đồng (heo: kg, 888: túi) · MT ngày đã dồn phần thiếu · "
-           "Từng bạn: ca sáng 40%, ca chiều 60%, chia đều trong ca"]
+    ghi = ["Đơn vị: triệu đồng (heo: kg, 888: túi) · MT ngày đã dồn phần thiếu"]
     ghi_do = list(kq.get("ghi_chu") or [])
     if kq.get("ngay_thieu"):
         ghi_do.append(f"⚠ Chưa có dữ liệu ngày {', '.join(kq['ngay_thieu'])} (đang tính = 0)")

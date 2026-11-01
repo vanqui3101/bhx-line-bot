@@ -176,12 +176,8 @@ def tinh_mtkm(ngay_bc_str):
             "pct_thang": (luy_ke / dong["muc_tieu"] * 100) if dong["muc_tieu"] else 0.0,
         })
 
-    try:
-        ket_qua["tung_ban"] = chia_muc_tieu(ket_qua["dong"], storage.get_phan_line(ngay_bc_str))
-    except Exception:
-        ket_qua["tung_ban"] = []
-    if not ket_qua["tung_ban"]:
-        ket_qua["ghi_chu"].append("Chưa có bài phân line hôm nay → chưa chia mục tiêu từng bạn")
+    # (01/11/2026) Mục tiêu TỪNG BẠN đã tách sang thẻ riêng (muc_tieu_ngay.py — gửi khi anh đăng
+    # phân line + lệnh CHỐT SỐ), thẻ MTKM chỉ còn theo dõi cửa hàng trong ngày.
     return ket_qua
 
 

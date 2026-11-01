@@ -694,3 +694,42 @@ def mark_drive_file_processed(file_id, file_name, modified_time):
                 processed_at=excluded.processed_at
         """, (file_id, file_name, modified_time, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     conn.close()
+# ---------------------------------------------------------------------------
+# (01/11/2026) BÁO CÁO BÁN HÀNG CUỐI NGÀY CỦA TỪNG BẠN (nhắn tự do trong nhóm)
+# Mỗi ngày x mỗi bạn 1 dòng; nhắn thêm tin mới thì GỘP theo từng mục (mục nào
+# có trong tin mới thì lấy số mới, mục khác giữ nguyên) — để bạn nào nhắn sai
+# chỉ cần nhắn lại đúng mục đó.
+# ---------------------------------------------------------------------------
+def _connect_baocao():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bao_cao_ban_hang (
+            ngay TEXT NOT NULL,
+            ten TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            gio TEXT,
+            PRIMARY KEY (ngay, ten)
+        )
+    """)
+    return conn
+def save_bao_cao_ban_hang(ngay, ten, items, gio=None):
+    """items: {key: so} — gộp vào báo cáo đã có của bạn đó trong ngày. Trả về báo cáo sau khi gộp."""
+    conn = _connect_baocao()
+    cur = conn.execute("SELECT data_json FROM bao_cao_ban_hang WHERE ngay = ? AND ten = ?", (ngay, ten))
+    row = cur.fetchone()
+    cu = json.loads(row[0]) if row else {}
+    cu.update(items)
+    with conn:
+        conn.execute("""
+            INSERT INTO bao_cao_ban_hang (ngay, ten, data_json, gio) VALUES (?, ?, ?, ?)
+            ON CONFLICT(ngay, ten) DO UPDATE SET data_json=excluded.data_json, gio=excluded.gio
+        """, (ngay, ten, json.dumps(cu, ensure_ascii=False), gio))
+    conn.close()
+    return cu
+def get_bao_cao_ban_hang(ngay):
+    """{ten: {"items": {...}, "gio": "HH:MM"}} của 1 ngày."""
+    conn = _connect_baocao()
+    cur = conn.execute("SELECT ten, data_json, gio FROM bao_cao_ban_hang WHERE ngay = ?", (ngay,))
+    rows = cur.fetchall()
+    conn.close()
+    return {ten: {"items": json.loads(dj), "gio": gio} for ten, dj, gio in rows}

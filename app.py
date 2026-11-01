@@ -11,6 +11,9 @@ Luồng hoạt động (MỚI):
    - "DT" hoặc "báo cáo doanh thu"          -> trả về thẻ Báo cáo doanh thu
    - "MỤC TIÊU KHUYẾN MÃI" hoặc "MTKM"      -> trả về thẻ Báo cáo ngành hàng
    - "id nhóm" (gõ trong nhóm)              -> trả về Group ID của nhóm đó
+   - Đăng bài PHÂN LINE (nhóm hoặc chat riêng) -> thẻ MỤC TIÊU NGÀY TỪNG BẠN (01/11/2026)
+   - Các bạn nhắn số bán cuối ngày (tự do)   -> bot ghi nhận, nhắc lại số đã hiểu
+   - "CHỐT SỐ" (hoặc "chốt số 01/11")        -> thẻ chốt số cuối ngày: mục tiêu ngày cửa hàng + từng bạn
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
@@ -74,6 +77,8 @@ import storage
 import ai_assistant
 import thuong_freshfmcg
 import mtkm_tracker
+import muc_tieu_ngay
+import muc_tieu_flex
 import gdrive_reader
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
@@ -149,6 +154,8 @@ TTFF_COMMAND_PATTERN = re.compile(
     r"^\s*(ttff|ti[eế]n\s*đ[ộo]\s*th[uư][oở]ng)\s*$", re.IGNORECASE
 )
 GROUP_ID_COMMAND_PATTERN = re.compile(r"^\s*id\s*nh[oó]m\s*$", re.IGNORECASE)
+# (01/11/2026) "CHỐT SỐ" — thẻ chốt số cuối ngày (mục tiêu ngày cửa hàng + từng bạn). Dò trên bản không dấu.
+CHOT_SO_PATTERN = re.compile(r"(?<![a-z])chot\s*so(?![a-z])")
 DANG_KY_COMMAND_PATTERN = re.compile(r"^\s*dk\s+(.+?)\s*$", re.IGNORECASE)
 # ---- Lệnh mới (HỦY TỒN + MMKK / PHÂN TÍCH / DOANH THU THỦY HẢI SẢN) ----
 # Khác với DT/MTKM/TD: gõ TỰ DO miễn có đúng cụm từ khóa trong câu, VÀ phải
@@ -179,7 +186,7 @@ SEAFOOD_TRIGGER = re.compile(r"doanh\s*thu\s*thuy\s*hai\s*san")
 # để tránh nhầm "Ánh" (tên) với "anh" (đại từ "anh" Quí hay dùng) — 2 từ
 # này chỉ phân biệt được nhờ dấu, bỏ dấu đi thì giống hệt nhau.
 NHAN_XET_TRIGGER = re.compile(r"nhan\s*xet")
-TEN_NHAN_XET_RE = re.compile(r"\b(Mi|Quyên|Sang|Thi|Ánh|Linh|Son)\b")
+TEN_NHAN_XET_RE = re.compile(r"\b(Mi|Quyên|Sang|Thi|Ánh|Linh|Son|Tiền)\b")
 # MỚI (16/09/2026, theo yêu cầu anh Quí): "nhận xét <loại data> <ngày>" —
 # NHẬN XÉT SỐ LIỆU trực tiếp, không cần gõ lệnh lấy báo cáo trước như "phân
 # tích số liệu" cũ. Phân biệt với "nhận xét mục tiêu" (nhân viên) ở trên nhờ
@@ -245,10 +252,11 @@ BOT_NAME_STRIP_PATTERN = re.compile(r"qu[ií]\s*227216\s*-?\s*bot", re.IGNORECAS
 TEST_TAG_ALL_PATTERN = re.compile(r"^\s*test\s*tag\s*all\s*$", re.IGNORECASE)
 TEST_TAG_ME_PATTERN = re.compile(r"^\s*test\s*tag\s*me\s*$", re.IGNORECASE)
 TEST_TAG_ONE_PATTERN = re.compile(r"^\s*test\s*tag\s+([a-zA-ZÀ-ỹ]+)\s*$", re.IGNORECASE)
-TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh"}
+TEN_NGAN_HOP_LE = {"mi", "quyên", "quyen", "sang", "thi", "ánh", "anh", "linh", "tiền", "tien", "son"}
 TEN_NGAN_CHUAN_HOA = {
     "mi": "Mi", "quyên": "Quyên", "quyen": "Quyên", "sang": "Sang",
     "thi": "Thi", "ánh": "Ánh", "anh": "Ánh", "linh": "Linh",
+    "tiền": "Tiền", "tien": "Tiền", "son": "Son",
 }
 @app.route("/", methods=["GET"])
 def health():
@@ -554,7 +562,8 @@ def _tieu_de_phan_line(doan_text):
     if re.match(r"CA\s+(SANG|CHIEU)\b", s):
         return (None, ca)
     return None
-TEN_TU_DONG_HOC = {"Mi": "Mi", "Quyên": "Quyên", "Sang": "Sang", "Thi": "Thi", "Ánh": "Ánh", "Linh": "Linh"}
+TEN_TU_DONG_HOC = {"Mi": "Mi", "Quyên": "Quyên", "Sang": "Sang", "Thi": "Thi", "Ánh": "Ánh", "Linh": "Linh",
+                   "Tiền": "Tiền", "Son": "Son"}
 def _tu_dong_dang_ky_tu_mention(text, mentionees):
     """Tự động học ID thật của từng bạn ngay từ bài phân line anh gửi —
     không cần ai gõ lệnh DK gì cả. Cách làm: gộp cả phần TRONG tag lẫn đoạn
@@ -606,10 +615,20 @@ def _parse_phan_line(text, mentionees):
         pos += len(line) + 1  # +1 cho ky tu xuong dong
     data = {
         "sang": {"thu_ngan_fresh_users": [], "thu_ngan_users": [], "fresh_users": [],
-                 "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
+                 "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {},
+                 "thu_ngan_names": [], "fresh_names": [], "fmcg_names": []},
         "chieu": {"thu_ngan_fresh_users": [], "thu_ngan_users": [], "fresh_users": [],
-                  "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
+                  "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {},
+                  "thu_ngan_names": [], "fresh_names": [], "fmcg_names": []},
     }
+
+    def _them_ten(ten):
+        """(01/11/2026) Ghi tên bạn vào đúng vai trò + ca hiện tại (dùng chia mục tiêu từng bạn)."""
+        vt = "fmcg" if current_group == "fmcg" else current_role
+        if ten and vt:
+            ds = data[current_ca][f"{vt}_names"]
+            if ten not in ds:
+                ds.append(ten)
     current_ca = "sang"
     current_group = "thu_ngan_fresh"
     # (01/11/2026) Tách riêng vai trò THU NGÂN và FRESH để chia mục tiêu MTKM cho từng bạn
@@ -648,6 +667,10 @@ def _parse_phan_line(text, mentionees):
         line_users = []
         for _ix, m_uid in tag_trong_dong:
             line_users.append(m_uid)
+            try:
+                _them_ten(storage.get_ten_ngan_tu_user_id(m_uid))
+            except Exception:
+                traceback.print_exc()
             bucket = data[current_ca][f"{current_group}_users"]
             if m_uid not in bucket:
                 bucket.append(m_uid)
@@ -666,6 +689,13 @@ def _parse_phan_line(text, mentionees):
             continue
         stripped = line.strip()
         if not stripped:
+            current_target_users = []
+            continue
+        # (01/11/2026) Bài phân line kiểu gọn: tên gõ thường, không tag (VD "* mi", "* quyên")
+        ten_dong = muc_tieu_ngay.nhan_nhieu_ten(stripped)
+        if ten_dong:
+            for ten in ten_dong:
+                _them_ten(ten)
             current_target_users = []
             continue
         if current_group == "fmcg":
@@ -1283,7 +1313,7 @@ def handle_text_message(event):
         # Bài PHÂN LINE hàng ngày (THU NGÂN / FRESH / FMCG) — tự nhận diện,
         # KHÔNG cần lệnh gì cả. Chỉ xử lý khi gõ trong nhóm (cần group_id để
         # tra tên hiển thị + tag lại sau này).
-        if source_type == "group" and _is_phan_line_message(text):
+        if _is_phan_line_message(text):
             try:
                 mention_obj = getattr(event.message, "mention", None)
                 print(f"[PHANLINE-DEBUG] raw event.message = {event.message}")
@@ -1298,9 +1328,9 @@ def handle_text_message(event):
                           f"user_id={getattr(m,'user_id',None)}, "
                           f"userId={getattr(m,'userId',None)}, "
                           f"type_field={getattr(m,'type',None)})")
+                _tu_dong_dang_ky_tu_mention(text, mentionees)
                 data = _parse_phan_line(text, mentionees)
                 print(f"[PHANLINE-DEBUG] ket qua tach: {json.dumps(data, ensure_ascii=False)}")
-                _tu_dong_dang_ky_tu_mention(text, mentionees)
                 try:
                     from zoneinfo import ZoneInfo
                     now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
@@ -1308,8 +1338,22 @@ def handle_text_message(event):
                     now_vn = _dt.now()
                 ngay_str = now_vn.strftime("%Y-%m-%d")
                 storage.save_phan_line(ngay_str, data)
-                reply_text(messaging_api, event.reply_token,
-                           "Em nhận line này rồi để em nhắc mấy anh/chị bám sát mục tiêu ngày để hoàn tất tốt mục tiêu anh ạ")
+                # (01/11/2026) Trả ngay THẺ MỤC TIÊU NGÀY TỪNG BẠN (thẻ riêng, không dính MTKM)
+                bubble = None
+                try:
+                    ch = muc_tieu_ngay.tinh_cua_hang(ngay_str)
+                    if ch is not None:
+                        tb = muc_tieu_ngay.chia_tung_ban(ch, data)
+                        bubble = muc_tieu_flex.build_the_muc_tieu(ngay_str, ch, tb)
+                except Exception:
+                    traceback.print_exc()
+                if bubble:
+                    send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
+                        alt_text=f"Mục tiêu ngày từng bạn {now_vn.strftime('%d/%m')}",
+                        contents=FlexContainer.from_dict(bubble)))
+                else:
+                    reply_text(messaging_api, event.reply_token,
+                               "Em nhận line này rồi để em nhắc mấy anh/chị bám sát mục tiêu ngày để hoàn tất tốt mục tiêu anh ạ")
             except Exception:
                 traceback.print_exc()
             return
@@ -1342,7 +1386,7 @@ def handle_text_message(event):
                     reply_text(messaging_api, event.reply_token, "Không lấy được ID của bạn, thử lại giúp em nhé.")
             else:
                 reply_text(messaging_api, event.reply_token,
-                           "Tên chưa đúng — gõ đúng 1 trong: Mi, Quyên, Sang, Thi, Ánh, Linh. VD: DK Mi")
+                           "Tên chưa đúng — gõ đúng 1 trong: Mi, Quyên, Sang, Thi, Ánh, Linh, Tiền, Son. VD: DK Mi")
             return
         # Lệnh lấy Group ID
         if GROUP_ID_COMMAND_PATTERN.match(text):
@@ -1351,6 +1395,60 @@ def handle_text_message(event):
             else:
                 reply_text(messaging_api, event.reply_token, "Lệnh này chỉ dùng được trong nhóm (group) nhé anh.")
             return
+        # (01/11/2026) Lệnh CHỐT SỐ — thẻ chốt số cuối ngày: mục tiêu ngày cửa hàng so với POS,
+        # MT ngày mai, từng bạn (mục tiêu / báo cáo / % đạt), ai báo cao hơn POS, 1 dòng nhận xét.
+        if CHOT_SO_PATTERN.search(text_kd) and len(text_kd) <= 60:
+            try:
+                ngay_chot = _ngay_hien_tai_str()
+                m_ngay = re.search(r"(\d{1,2})\s*[/-]\s*(\d{1,2})", text_kd)
+                if m_ngay:
+                    ngay_chot = f"{_now_vn_datetime().year}-{int(m_ngay.group(2)):02d}-{int(m_ngay.group(1)):02d}"
+                kq_chot = muc_tieu_ngay.tinh_chot_so(ngay_chot)
+                if kq_chot is None:
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                "Tháng này chưa cài mục tiêu ngày nên chưa chốt số được anh ạ.")
+                    return
+                bubble = muc_tieu_flex.build_the_chot_so(ngay_chot, kq_chot)
+                send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
+                    alt_text=f"Chốt số {ngay_chot[8:]}/{ngay_chot[5:7]}",
+                    contents=FlexContainer.from_dict(bubble)))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi chốt số: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # (01/11/2026) BÁO CÁO BÁN HÀNG CUỐI NGÀY của các bạn — nhắn tự do trong nhóm
+        # (VD "Nay em bán trứng đc 8 vỉ Đm 1079 skho 1504 c2 6 lốc tt anh @Quí").
+        # Bot đọc số, lưu theo tên đã đăng ký, trả 1 dòng nhắc lại số đã hiểu.
+        if source_type == "group" and text:
+            try:
+                _mention_obj = getattr(event.message, "mention", None)
+                _mens = (getattr(_mention_obj, "mentionees", None) or []) if _mention_obj else []
+                _che = []
+                for _m in _mens:
+                    _ix = _mention_index_py(text, getattr(_m, "index", None))
+                    _ln = getattr(_m, "length", None)
+                    if _ix is not None and _ln:
+                        _che.append((_ix, _ix + _ln))
+                _items, _ghi = muc_tieu_ngay.doc_bao_cao(text, _che)
+                # tag bot (hỏi bot) thì không tính là tag báo cáo — các bạn báo cáo thường tag anh Quí
+                if muc_tieu_ngay.la_tin_bao_cao(text, _items, co_tag=bool(_mens) and not da_tag_bot):
+                    _uid = getattr(event.source, "user_id", None)
+                    _ten = storage.get_ten_ngan_tu_user_id(_uid) if _uid else None
+                    if _ten:
+                        storage.save_bao_cao_ban_hang(_ngay_hien_tai_str(), _ten, _items, _now_vn_time_str())
+                        reply_text(messaging_api, event.reply_token,
+                                   muc_tieu_ngay.tom_tat_bao_cao(_ten, _items, _ghi))
+                        return
+                    if muc_tieu_ngay._TU_BAO_CAO.search(unicodedata.normalize("NFC", text).lower()):
+                        reply_text(messaging_api, event.reply_token,
+                                   "Em chưa biết tài khoản này là bạn nào nên chưa ghi số được. "
+                                   "Bạn gõ \"DK <tên>\" 1 lần (VD: DK Tiền) rồi nhắn lại số giúp em nhé.")
+                        return
+            except Exception:
+                traceback.print_exc()
         # Lệnh "kiểm tra drive" (16/09/2026, ĐƠN GIẢN HOÁ THEO YÊU CẦU ANH QUÍ) —
         # chạy tay ngay lập tức thay vì đợi tới lịch 4 tiếng/lần. Chỉ trả lời
         # ĐÚNG nơi anh gõ lệnh (chat riêng hoặc nhóm), KHÔNG tự nhắn gì thêm
