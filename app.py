@@ -501,8 +501,59 @@ def _noi_dung_thu_ngan_fresh(ca):
     )
 NOI_DUNG_FMCG_CHIEU = "Xử lí nhanh hàng kho trung tâm, chỉnh chu kệ, dọn kho"
 def _is_phan_line_message(text):
-    tu = text.upper()
-    return "THU NGÂN" in tu and "FMCG" in tu
+    tu = _bo_dau_upper(text)
+    return "THU NGAN" in tu and "FMCG" in tu
+def _bo_dau_upper(s):
+    """Bỏ dấu tiếng Việt + viết hoa (chỉ để NHẬN DIỆN chữ, không dùng để cắt text)."""
+    s = unicodedata.normalize("NFD", str(s or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.replace("đ", "d").replace("Đ", "D").upper()
+def _mention_index_py(text, idx):
+    """LINE có thể tính vị trí tag theo UTF-16 (1 emoji = 2 ký tự) trong khi
+    Python tính 1 — bài có emoji trước tag sẽ bị lệch dòng. Ưu tiên vị trí
+    nào rơi đúng vào ký tự '@'."""
+    if idx is None:
+        return None
+    if 0 <= idx < len(text) and text[idx] == "@":
+        return idx
+    dem = 0
+    for i, ch in enumerate(text):
+        if dem == idx:
+            if ch == "@":
+                return i
+            break
+        if dem > idx:
+            break
+        dem += 2 if ord(ch) > 0xFFFF else 1
+    return idx
+_DAU_DONG_NOI_DUNG = ("-", "(", "=", ">", "+", "•", "*-")
+def _tieu_de_phan_line(doan_text):
+    """Nhận diện 1 dòng (hoặc phần chữ TRƯỚC tag đầu tiên của dòng) có phải TIÊU ĐỀ.
+    Trả về (vai_tro, ca) — vai_tro: thu_ngan / fresh / fmcg / None (chỉ đổi ca) —
+    hoặc None nếu là dòng nội dung. Chỉ tính là tiêu đề khi dòng BẮT ĐẦU bằng
+    THU NGÂN / FRESH / FMCG / CA SÁNG / CA CHIỀU (bỏ qua emoji, dấu * # trang trí).
+    Dòng bắt đầu bằng - ( = > + là nội dung công việc (VD "( hỗ trợ thu ngân)")."""
+    s = doan_text.strip()
+    if not s or s.startswith(_DAU_DONG_NOI_DUNG):
+        return None
+    s = _bo_dau_upper(s)
+    s = re.sub(r"^[^A-Z0-9(\-=>+]+", "", s)
+    if not s or s.startswith(("-", "(", "=", ">", "+")):
+        return None
+    ca = None
+    if re.search(r"\bCHIEU\b", s):
+        ca = "chieu"
+    elif re.search(r"\bSANG\b", s):
+        ca = "sang"
+    if re.match(r"THU\s*NGAN\b", s):
+        return ("thu_ngan", ca)
+    if s.startswith("FRESH"):
+        return ("fresh", ca)
+    if s.startswith("FMCG"):
+        return ("fmcg", ca)
+    if re.match(r"CA\s+(SANG|CHIEU)\b", s):
+        return (None, ca)
+    return None
 TEN_TU_DONG_HOC = {"Mi": "Mi", "Quyên": "Quyên", "Sang": "Sang", "Thi": "Thi", "Ánh": "Ánh", "Linh": "Linh"}
 def _tu_dong_dang_ky_tu_mention(text, mentionees):
     """Tự động học ID thật của từng bạn ngay từ bài phân line anh gửi —
@@ -512,7 +563,7 @@ def _tu_dong_dang_ky_tu_mention(text, mentionees):
     (VD "...198434-SANG"), có bạn tên nằm sau tag (VD "112006 Mi")."""
     for m in mentionees:
         user_id = getattr(m, "user_id", None) or getattr(m, "userId", None)
-        idx = getattr(m, "index", None)
+        idx = _mention_index_py(text, getattr(m, "index", None))
         length = getattr(m, "length", None)
         if user_id is None or idx is None or length is None:
             continue
@@ -564,46 +615,49 @@ def _parse_phan_line(text, mentionees):
     # (01/11/2026) Tách riêng vai trò THU NGÂN và FRESH để chia mục tiêu MTKM cho từng bạn
     current_role = "thu_ngan"
     current_target_users = []  # user_id của (các) bạn vừa được tag ở dòng gần nhất
+    # vị trí tag (đã đổi về index Python) + user_id
+    tag_list = []
+    for m in mentionees:
+        m_uid = getattr(m, "user_id", None) or getattr(m, "userId", None)
+        m_index = _mention_index_py(text, getattr(m, "index", None))
+        if m_index is None or m_uid is None:
+            continue
+        tag_list.append((m_index, m_uid))
+    tag_list.sort()
     for i, line in enumerate(lines):
-        line_upper = line.strip().upper()
         line_start = offsets[i]
         line_end = line_start + len(line)
-        is_header = False
-        if "THU NGÂN" in line_upper:
-            is_header = True
-            current_group = "thu_ngan_fresh"
-            current_role = "thu_ngan"
-            if "CHIỀU" in line_upper or "CHIEU" in line_upper:
-                current_ca = "chieu"
-            elif "SÁNG" in line_upper or "SANG" in line_upper:
-                current_ca = "sang"
-        elif line_upper.startswith("FRESH"):
-            is_header = True
-            current_group = "thu_ngan_fresh"
-            current_role = "fresh"
-        elif line_upper.startswith("FMCG"):
-            is_header = True
-            current_group = "fmcg"
-            current_role = None
-        # tim mention nam trong dong nay (giữ nguyên logic cũ — quét mention
-        # TRƯỚC khi quyết định continue, kể cả dòng đó cũng là header)
-        line_has_mention = False
+        tag_trong_dong = [(ix, uid) for ix, uid in tag_list if line_start <= ix < line_end]
+        # (01/11/2026) Chỉ xét TIÊU ĐỀ ở phần chữ TRƯỚC tag đầu tiên của dòng, và dòng phải
+        # BẮT ĐẦU bằng THU NGÂN/FRESH/FMCG — tránh dòng "( hỗ trợ thu ngân)" hay
+        # "@Sang hỗ trợ thu ngân" bị hiểu nhầm là tiêu đề THU NGÂN (lỗi Fresh mất hết)
+        doan_truoc_tag = line[: tag_trong_dong[0][0] - line_start] if tag_trong_dong else line
+        tieu_de = _tieu_de_phan_line(doan_truoc_tag)
+        is_header = tieu_de is not None
+        if tieu_de:
+            vai_tro, ca_moi = tieu_de
+            if ca_moi:
+                current_ca = ca_moi
+            if vai_tro == "fmcg":
+                current_group = "fmcg"
+                current_role = None
+            elif vai_tro in ("thu_ngan", "fresh"):
+                current_group = "thu_ngan_fresh"
+                current_role = vai_tro
+        line_has_mention = bool(tag_trong_dong)
         line_users = []
-        for m in mentionees:
-            m_index = getattr(m, "index", None)
-            m_uid = getattr(m, "user_id", None) or getattr(m, "userId", None)
-            if m_index is None or m_uid is None:
-                continue
-            if line_start <= m_index < line_end:
-                line_has_mention = True
-                line_users.append(m_uid)
-                bucket = data[current_ca][f"{current_group}_users"]
-                if m_uid not in bucket:
-                    bucket.append(m_uid)
-                if current_group == "thu_ngan_fresh" and current_role:
-                    role_bucket = data[current_ca][f"{current_role}_users"]
-                    if m_uid not in role_bucket:
-                        role_bucket.append(m_uid)
+        for _ix, m_uid in tag_trong_dong:
+            line_users.append(m_uid)
+            bucket = data[current_ca][f"{current_group}_users"]
+            if m_uid not in bucket:
+                bucket.append(m_uid)
+            if current_group == "thu_ngan_fresh" and current_role:
+                role_bucket = data[current_ca][f"{current_role}_users"]
+                if m_uid not in role_bucket:
+                    role_bucket.append(m_uid)
+        if is_header and line_has_mention:
+            current_target_users = line_users
+            continue
         if is_header:
             current_target_users = []
             continue
