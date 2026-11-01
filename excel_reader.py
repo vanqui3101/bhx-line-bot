@@ -18,6 +18,7 @@ detect_file_type() dùng để tự động phân biệt 3 loại file khi ngư�
 file vào bot, không cần người dùng khai báo loại file.
 """
 import openpyxl
+import re
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
@@ -191,6 +192,7 @@ def _empty_day_acc():
         "ng888_tien": 0.0,
         "nganh_hang": {},
         "phan_tich": {},
+        "heo_cp_kg": 0.0,
     }
 
 
@@ -233,6 +235,8 @@ def _finish_day_payload(ngay_str, acc):
         # loại, Thịt nhập khẩu... nằm lẫn trong ngành hàng gốc khác nên phải
         # lấy theo cột này). Dùng cho thẻ MTKM mới.
         "phan_tich": dict(acc["phan_tich"]),
+        # (01/11/2026) Sản lượng kg thịt heo C.P (tính cả da mỡ, quy đổi gói/túi theo gram)
+        "heo_cp_kg": acc["heo_cp_kg"],
     }
 
 
@@ -310,10 +314,22 @@ def read_category_rows_by_date(input_path):
                     acc["c2"][ten]["thanh_tien"] += thanh_tien
                     break
 
-        # ---- NƯỚC GIẶT 888 (1 sản phẩm, đơn vị gốc túi, không quy đổi) ----
+        # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
-            acc["ng888_sl"] += sl_thuc_xuat
+            m_th = re.search(r"TH\s*(\d+)", ten_sp_upper)
+            don_vi_up = str(cell("don_vi") or "").strip().upper()
+            he_so = int(m_th.group(1)) if m_th else (4 if don_vi_up == "THÙNG" else 1)
+            acc["ng888_sl"] += sl_thuc_xuat * he_so
             acc["ng888_tien"] += thanh_tien
+
+        # ---- THỊT HEO C.P (kg) — mọi mã heo có chữ "C.P" trong tên ----
+        if nhom_hang == "Thịt Heo Các Loại" and "C.P" in ten_sp_upper:
+            don_vi_up = str(cell("don_vi") or "").strip().upper()
+            if don_vi_up == "KG":
+                acc["heo_cp_kg"] += sl_thuc_xuat
+            else:
+                m_g = re.search(r"(\d+)\s*G", ten_sp_upper)
+                acc["heo_cp_kg"] += sl_thuc_xuat * (int(m_g.group(1)) / 1000 if m_g else 1)
     wb.close()
 
     return {ngay: _finish_day_payload(ngay, acc) for ngay, acc in theo_ngay.items()}

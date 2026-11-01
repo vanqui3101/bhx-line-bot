@@ -521,50 +521,118 @@ def _mtkm_bang(title, sub, ten_cot_mt, dong, lay):
     return {"type": "box", "layout": "vertical", "contents": rows}
 
 
+def _mtkm_so(v, don_vi, chi_tiet=False):
+    """Định dạng số trên thẻ MTKM: tiền -> triệu (2 số lẻ), kg -> 1 số lẻ, túi -> số nguyên."""
+    if don_vi == "tr":
+        return f"{(v or 0) / 1_000_000:.2f}".replace(".", ",")
+    if don_vi == "kg":
+        return f"{(v or 0):.1f}".replace(".", ",")
+    return f"{(v or 0):.0f}"
+
+
+def _mtkm_o(text, flex, align="end", color=BLACK, bold=False, size="sm"):
+    return {"type": "text", "text": text, "flex": flex, "size": size, "align": align, "color": color,
+            "weight": "bold" if bold else "regular", "wrap": True, "gravity": "center"}
+
+
+# (01/11/2026) THẺ MTKM THÁNG 11 — 1 bảng gọn (MT ngày | Hôm nay | % ngày | % tháng)
+# + phần MỤC TIÊU TỪNG BẠN (đọc bài phân line, chia ca sáng 40% / chiều 60%).
+# Số liệu tính sẵn ở mtkm_tracker.tinh_mtkm(); hàm dưới đây CHỈ vẽ thẻ.
 def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
-    """Thẻ MTKM dạng bảng. kq = mtkm_tracker.tinh_mtkm(ngay)."""
-    dong = (kq or {}).get("dong") or []
+    kq = kq or {}
+    dong = kq.get("dong") or []
+    tien_do = kq.get("pct_tien_do", 0)
     body = []
     if dong:
-        body.append(_mtkm_bang(
-            "HÔM NAY", None, "MT hôm nay", dong,
-            lambda s: (s["muc_tieu_hom_nay"], s["hom_nay"], s["pct_hom_nay"], s["hom_nay"] >= s["muc_tieu_hom_nay"]),
-        ))
-        nk = next((s for s in dong if s["key"] == "nk"), None)
-        sub = "(Thịt NK: 15–31/10)" if nk else None
-        body.append(_mtkm_bang(
-            "LŨY KẾ THÁNG", sub, "MT tháng", dong,
-            # Lũy kế "đạt" = đang đi nhanh hơn hoặc bằng tiến độ thời gian
-            lambda s: (s["muc_tieu"], s["luy_ke"], s["pct"], s["pct"] >= s["pct_tien_do"]),
-        ))
-        # Dòng "Mai cần"
-        mai = [f"{s['ten']} {_so_tr(s['mai_can'])}" for s in dong if s.get("mai_can") is not None and not s.get("la_tong")]
-        if mai:
-            body.append({
-                "type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
-                "backgroundColor": MTKM_HL_BG, "contents": [
-                    {"type": "text", "text": "MAI CẦN (triệu/ngày)", "size": "xs", "weight": "bold", "color": MTKM_GOLD_TEXT},
-                    {"type": "text", "text": " · ".join(mai), "size": "xs", "color": MTKM_GOLD_SUB, "wrap": True, "margin": "xs"},
+        rows = [{
+            "type": "box", "layout": "horizontal", "backgroundColor": MTKM_HL_BG,
+            "paddingAll": "6px", "paddingStart": "12px", "paddingEnd": "12px",
+            "contents": [_mtkm_o("Nhóm hàng", 34, "start", MTKM_GOLD_TEXT, True, "xxs"),
+                         _mtkm_o("MT ngày", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
+                         _mtkm_o("Hôm nay", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
+                         _mtkm_o("% ngày", 15, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
+                         _mtkm_o("% tháng", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs")],
+        }]
+        for i, d in enumerate(dong):
+            dat_ngay = d["pct_ngay"] >= 100
+            dat_thang = d["pct_thang"] >= tien_do
+            ten_cells = [_mtkm_o(d["ten"], 34, "start", MTKM_GOLD_TEXT, True)]
+            if d.get("nhan_gd"):
+                ten_cells = [{"type": "box", "layout": "vertical", "flex": 34, "contents": [
+                    {"type": "text", "text": d["ten"], "size": "sm", "weight": "bold", "color": MTKM_GOLD_TEXT, "wrap": True},
+                    {"type": "text", "text": d["nhan_gd"], "size": "xxs", "color": GRAY, "wrap": True}]}]
+            row = {
+                "type": "box", "layout": "horizontal", "paddingAll": "6px",
+                "paddingStart": "12px", "paddingEnd": "12px",
+                "contents": ten_cells + [
+                    _mtkm_o(_mtkm_so(d["mt_ngay"], d["don_vi"]), 17, bold=d["la_tong"]),
+                    _mtkm_o(_mtkm_so(d["hom_nay"], d["don_vi"]), 17, bold=d["la_tong"]),
+                    _mtkm_o(f"{d['pct_ngay']:.0f}%" + (" ✓" if dat_ngay else ""), 15,
+                            color=GREEN if dat_ngay else RED, bold=True),
+                    _mtkm_o(f"{d['pct_thang']:.1f}%".replace(".", ",") + (" ✓" if dat_thang else ""), 17,
+                            color=GREEN if dat_thang else RED, bold=True),
                 ],
-            })
+            }
+            if d["la_tong"]:
+                row["backgroundColor"] = "#FFF8EC"
+            if i:
+                rows.append({"type": "separator", "color": DIVIDER})
+            rows.append(row)
+        body.append({"type": "box", "layout": "vertical", "contents": rows})
+
+        # ---- MỤC TIÊU TỪNG BẠN ----
+        tung_ban = kq.get("tung_ban") or []
+        if tung_ban:
+            body.append({"type": "box", "layout": "vertical", "backgroundColor": MTKM_SEC_BG,
+                         "paddingAll": "6px", "paddingStart": "12px", "margin": "md",
+                         "contents": [{"type": "text", "text": "MỤC TIÊU TỪNG BẠN HÔM NAY", "size": "sm",
+                                       "weight": "bold", "color": "#FFFFFF"}]})
+            nhan = {"sk": "Sữa khô", "sm": "Sữa mát", "kem": "Kem", "dl": "Đông lạnh",
+                    "ng888": "888", "ca_trung": "Cá + trứng", "heo": "Heo C.P"}
+            for j, b in enumerate(tung_ban):
+                mt = b["mt"]
+                if b["loai"] == "thu_ngan":
+                    tong = sum(v for k, v in mt.items() if k in ("sk", "sm", "kem", "dl"))
+                    tong_txt = _mtkm_so(tong, "tr") + "tr"
+                    chi_tiet = " · ".join(f"{nhan[k]} {_mtkm_so(mt[k], 'tr')}" for k in ("sk", "sm", "kem", "dl") if k in mt)
+                    if "ng888" in mt:
+                        chi_tiet += f" · 888: {int(mt['ng888'])} túi"
+                else:
+                    tong_txt = (_mtkm_so(mt.get("ca_trung", 0), "tr") + "tr + "
+                                + _mtkm_so(mt.get("heo", 0), "kg") + "kg")
+                    chi_tiet = (f"Cá + trứng {_mtkm_so(mt.get('ca_trung', 0), 'tr')}tr · "
+                                f"Heo C.P {_mtkm_so(mt.get('heo', 0), 'kg')}kg")
+                if j:
+                    body.append({"type": "separator", "color": DIVIDER})
+                body.append({
+                    "type": "box", "layout": "vertical", "paddingAll": "7px",
+                    "paddingStart": "12px", "paddingEnd": "12px",
+                    "contents": [
+                        {"type": "box", "layout": "horizontal", "contents": [
+                            {"type": "text", "text": f"{b['ten']} · {b['vai_tro']}", "size": "sm", "weight": "bold",
+                             "color": MTKM_GOLD_TEXT, "flex": 6, "wrap": True},
+                            {"type": "text", "text": tong_txt, "size": "sm", "weight": "bold", "color": RED,
+                             "flex": 4, "align": "end", "wrap": True}]},
+                        {"type": "text", "text": chi_tiet, "size": "xs", "color": GRAY_LIGHT, "wrap": True, "margin": "xs"},
+                    ],
+                })
     else:
         body.append({"type": "text", "text": "Chưa có mục tiêu MTKM cho tháng này.", "size": "sm",
                      "color": GRAY, "margin": "md", "wrap": True})
 
-    ghi = list((kq or {}).get("ghi_chu") or [])
-    if (kq or {}).get("ngay_thieu"):
-        ghi.append(f"⚠ Chưa có dữ liệu ngày {', '.join(kq['ngay_thieu'])} (đang tính = 0)")
-    chu_thich = "Đơn vị: triệu đồng · MT hôm nay đã dồn phần thiếu · ✓ = đạt / nhanh hơn tiến độ"
-    ghi_box = [{"type": "text", "text": chu_thich, "size": "xxs", "color": GRAY, "wrap": True}]
-    for g in ghi:
-        ghi_box.append({"type": "text", "text": g, "size": "xxs", "color": RED, "wrap": True, "margin": "xs"})
+    ghi = ["Đơn vị: triệu đồng (heo: kg, 888: túi) · MT ngày đã dồn phần thiếu · "
+           "Từng bạn: ca sáng 40%, ca chiều 60%, chia đều trong ca"]
+    ghi_do = list(kq.get("ghi_chu") or [])
+    if kq.get("ngay_thieu"):
+        ghi_do.append(f"⚠ Chưa có dữ liệu ngày {', '.join(kq['ngay_thieu'])} (đang tính = 0)")
+    ghi_box = [{"type": "text", "text": g, "size": "xxs", "color": GRAY, "wrap": True} for g in ghi]
+    ghi_box += [{"type": "text", "text": g, "size": "xxs", "color": RED, "wrap": True, "margin": "xs"} for g in ghi_do]
     body.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
                  "paddingTop": "8px", "contents": ghi_box})
 
-    ngay_d = datetime.strptime(ngay, "%Y-%m-%d")
-    so_ngay_thang = (ngay_d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    tien_do = f"Đã qua {ngay_d.day}/{so_ngay_thang.day} ngày ({ngay_d.day / so_ngay_thang.day * 100:.0f}%) · DT chưa VAT"
     dong_ngay = _fmt_date_display(ngay) + (f" · cập nhật {gio}" if gio else "")
+    tien_do_txt = (f"Ngày {kq.get('ngay_thu', '')}/{kq.get('so_ngay_thang', '')} · "
+                   f"tiến độ tháng cần {tien_do:.1f}%".replace(".", ","))
     return {
         "type": "bubble",
         "size": "giga",
@@ -573,7 +641,7 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
             "contents": [
                 {"type": "text", "text": f"MTKM {ten_st or ''}".strip(), "color": MTKM_GOLD_TEXT, "weight": "bold", "size": "lg", "wrap": True},
                 {"type": "text", "text": dong_ngay, "color": MTKM_GOLD_SUB, "size": "xs", "margin": "xs"},
-                {"type": "text", "text": tien_do, "color": MTKM_GOLD_SUB, "size": "xs", "margin": "xs"},
+                {"type": "text", "text": tien_do_txt, "color": MTKM_GOLD_SUB, "size": "xs", "margin": "xs"},
             ],
         },
         "body": {

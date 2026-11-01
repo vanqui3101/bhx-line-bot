@@ -554,11 +554,15 @@ def _parse_phan_line(text, mentionees):
         offsets.append(pos)
         pos += len(line) + 1  # +1 cho ky tu xuong dong
     data = {
-        "sang": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
-        "chieu": {"thu_ngan_fresh_users": [], "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
+        "sang": {"thu_ngan_fresh_users": [], "thu_ngan_users": [], "fresh_users": [],
+                 "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
+        "chieu": {"thu_ngan_fresh_users": [], "thu_ngan_users": [], "fresh_users": [],
+                  "fmcg_users": [], "fmcg_text_lines": [], "muc_tieu": {}},
     }
     current_ca = "sang"
     current_group = "thu_ngan_fresh"
+    # (01/11/2026) Tách riêng vai trò THU NGÂN và FRESH để chia mục tiêu MTKM cho từng bạn
+    current_role = "thu_ngan"
     current_target_users = []  # user_id của (các) bạn vừa được tag ở dòng gần nhất
     for i, line in enumerate(lines):
         line_upper = line.strip().upper()
@@ -568,6 +572,7 @@ def _parse_phan_line(text, mentionees):
         if "THU NGÂN" in line_upper:
             is_header = True
             current_group = "thu_ngan_fresh"
+            current_role = "thu_ngan"
             if "CHIỀU" in line_upper or "CHIEU" in line_upper:
                 current_ca = "chieu"
             elif "SÁNG" in line_upper or "SANG" in line_upper:
@@ -575,9 +580,11 @@ def _parse_phan_line(text, mentionees):
         elif line_upper.startswith("FRESH"):
             is_header = True
             current_group = "thu_ngan_fresh"
+            current_role = "fresh"
         elif line_upper.startswith("FMCG"):
             is_header = True
             current_group = "fmcg"
+            current_role = None
         # tim mention nam trong dong nay (giữ nguyên logic cũ — quét mention
         # TRƯỚC khi quyết định continue, kể cả dòng đó cũng là header)
         line_has_mention = False
@@ -593,6 +600,10 @@ def _parse_phan_line(text, mentionees):
                 bucket = data[current_ca][f"{current_group}_users"]
                 if m_uid not in bucket:
                     bucket.append(m_uid)
+                if current_group == "thu_ngan_fresh" and current_role:
+                    role_bucket = data[current_ca][f"{current_role}_users"]
+                    if m_uid not in role_bucket:
+                        role_bucket.append(m_uid)
         if is_header:
             current_target_users = []
             continue
@@ -733,6 +744,8 @@ def _build_phan_line_text_and_data(ngay_str, roster_for_date):
                 fmcg_text_lines.append(f"- {cv}")
             them_dong("")
         phan_line_data[ca_key]["thu_ngan_fresh_users"] = thu_ngan_ids + fresh_ids
+        phan_line_data[ca_key]["thu_ngan_users"] = thu_ngan_ids
+        phan_line_data[ca_key]["fresh_users"] = fresh_ids
         phan_line_data[ca_key]["fmcg_users"] = fmcg_ids
         phan_line_data[ca_key]["fmcg_text"] = "\n".join(fmcg_text_lines)
     them_dong("==> MỤC TIÊU CỤ THỂ TỪNG ANH/CHỊ báo cáo trước 22h")
