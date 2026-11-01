@@ -1336,7 +1336,20 @@ def handle_text_message(event):
                     now_vn = _dt.now(ZoneInfo("Asia/Ho_Chi_Minh"))
                 except Exception:
                     now_vn = _dt.now()
-                ngay_str = now_vn.strftime("%Y-%m-%d")
+                # (01/11/2026) Bài phân line áp cho ngày nào:
+                #  - trong bài có ghi ngày (VD "02/11") -> đúng ngày đó
+                #  - đăng từ 21h trở đi (sau giờ đóng cửa, thường là sau CHỐT SỐ) -> ngày MAI
+                #  - còn lại -> hôm nay
+                m_ngay_pl = re.search(r"(?<![\d/])(\d{1,2})\s*/\s*(\d{1,2})(?![\d/])", text)
+                ngay_pl = None
+                if m_ngay_pl:
+                    try:
+                        ngay_pl = _dt(now_vn.year, int(m_ngay_pl.group(2)), int(m_ngay_pl.group(1)))
+                    except ValueError:
+                        ngay_pl = None
+                if ngay_pl is None:
+                    ngay_pl = now_vn + _td(days=1) if now_vn.hour >= 21 else now_vn
+                ngay_str = ngay_pl.strftime("%Y-%m-%d")
                 storage.save_phan_line(ngay_str, data)
                 # (01/11/2026) Trả ngay THẺ MỤC TIÊU NGÀY TỪNG BẠN (thẻ riêng, không dính MTKM)
                 bubble = None
@@ -1349,7 +1362,7 @@ def handle_text_message(event):
                     traceback.print_exc()
                 if bubble:
                     send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
-                        alt_text=f"Mục tiêu ngày từng bạn {now_vn.strftime('%d/%m')}",
+                        alt_text=f"Mục tiêu ngày từng bạn {ngay_pl.strftime('%d/%m')}",
                         contents=FlexContainer.from_dict(bubble)))
                 else:
                     reply_text(messaging_api, event.reply_token,

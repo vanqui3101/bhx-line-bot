@@ -55,7 +55,7 @@ MUC = {
 
 # Mục tiêu tháng (chốt với anh Quí 01/11/2026)
 #  sk: base T9 x120% (chia theo tỉ trọng 4 ngành ĐMSK 471tr) · dm = sữa mát + kem + đông lạnh
-#  c2: mức T10 ~54 lốc/ngày (thùng TH24 = 4 lốc) · 888: tối thiểu 200 túi
+#  c2: anh Quí chốt 01/11: trung bình 30 lốc/ngày (thùng TH24 = 4 lốc, tính cả online) · 888: tối thiểu 200 túi
 #  trung: 25 vỉ/ngày (sáng 10 + chiều 15) · heo: T9 728,7kg x110%
 #  ca: (cá + trứng 75,953tr) - tiền 750 vỉ trứng (giá TB T10 ~25.039đ/vỉ = 18,779tr) = 57,174tr;
 #      tuần 1 (01-07/11) cá + trứng phải chạy nhịp +15% (19,983tr) -> cá tuần 1 = 19,983 - 175 vỉ x 25.039 = 15,601tr
@@ -66,7 +66,7 @@ MUC_TIEU_THANG = {
     "2026-11": {
         "sk": {"muc_tieu": 231_864_000},
         "dm": {"muc_tieu": 239_136_000},
-        "c2": {"muc_tieu": 1620},
+        "c2": {"muc_tieu": 900},
         "ng888": {"muc_tieu": 200},
         "ca": {"muc_tieu": 57_174_000,
                "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},

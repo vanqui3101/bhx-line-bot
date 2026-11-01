@@ -250,6 +250,9 @@ def build_the_chot_so(ngay_str, kq):
         canh_bao.append("⚠ Chưa báo cáo: " + ", ".join(kq["chua_bao"]))
     if not kq["co_phan_line"]:
         canh_bao.append("⚠ Hôm nay chưa có bài phân line → chưa có mục tiêu từng bạn")
+    elif not kq["so_nguoi"]:
+        canh_bao.append("⚠ Bot chưa đọc được tên bạn nào trong bài phân line hôm nay → anh đăng lại bài "
+                        "phân line rồi gõ CHỐT SỐ")
     if not ch["co_pos"]:
         canh_bao.append("⚠ Chưa có file POS 76 của hôm nay → anh nạp file chốt rồi gõ lại CHỐT SỐ")
     if ch.get("ngay_thieu"):
