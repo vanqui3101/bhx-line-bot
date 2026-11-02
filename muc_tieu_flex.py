@@ -183,7 +183,7 @@ def build_the_muc_tieu(ngay_str, ch, tb):
 def _bang_cua_hang(ch):
     rows = [_hang([_t("Nhóm hàng", "xxs", MTKM_GOLD_TEXT, True, flex=34),
                    _t("MT ngày", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
-                   _t("POS", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
+                   _t("THỰC TẾ", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
                    _t("% đạt", "xxs", MTKM_GOLD_TEXT, True, "end", 22)], MTKM_HL_BG)]
     for i, k in enumerate(ch["thu_ngan"] + ch["fresh"]):
         m = ch["muc"][k]
@@ -216,7 +216,7 @@ def _bang_cua_hang(ch):
 def _bang_tung_ban(bang, ds_muc, ch):
     """(02/11/2026) 2 bảng kẻ ô:
        1) hàng = mục, cột = từng bạn: số báo (to) / mục tiêu (nhỏ), màu theo % · hàng cuối = % đạt
-       2) đối chiếu POS: Các bạn báo | POS | Có tư vấn"""
+       2) đối chiếu: Các bạn báo | THỰC TẾ (POS) | Có tư vấn"""
     # cùng thứ tự với thẻ mục tiêu sáng: ca sáng -> cả ngày -> ca chiều -> báo ngoài line
     thu_tu = {"sáng": 0, "cả ngày": 1, "chiều": 2}
     dong = sorted(bang["dong"], key=lambda d: thu_tu.get(d["ca"], 3))
@@ -254,7 +254,7 @@ def _bang_tung_ban(bang, ds_muc, ch):
     bo_trong = {k: not any(d["mt"].get(k) for d in dong) and not bang["tong_bc"][k] for k in ds_muc}
     w2 = (30, 23, 23, 24)
     rows2 = [_hang([_o_tieu_de(["Đối chiếu"], w2[0], "start"), _o_tieu_de(["Các bạn", "báo"], w2[1], "end"),
-                    _o_tieu_de(["POS"], w2[2], "end"), _o_tieu_de(["Có tư vấn", "báo/POS"], w2[3], "end")],
+                    _o_tieu_de(["THỰC TẾ"], w2[2], "end"), _o_tieu_de(["Có tư vấn", "báo/thực tế"], w2[3], "end")],
                    MTKM_HL_BG, "4px")]
     for k in ds_muc:
         dv = MUC[k]["don_vi"]
@@ -265,7 +265,7 @@ def _bang_tung_ban(bang, ds_muc, ch):
         else:
             bao_txt = fmt_so(bang["tong_bc"][k], dv)
             if ctv is not None and ctv > 100.5:
-                ctv_txt, ctv_mau = "⚠ vượt POS", RED
+                ctv_txt, ctv_mau = "⚠ BC KHỐNG", RED
             else:
                 ctv_txt, ctv_mau = pct_txt(ctv), _mau_pct(ctv)
         rows2.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w2[0]),
@@ -297,9 +297,9 @@ def build_the_chot_so(ngay_str, kq):
     canh_bao = []
     for b in kq["bao_vuot"]:
         dv = MUC[b["muc"]]["don_vi"]
-        canh_bao.append(f"⚠ {MUC[b['muc']]['ten']}: các bạn báo {fmt_co_don_vi(b['tong'], dv)} nhưng POS chỉ "
-                        f"{fmt_co_don_vi(b['pos'], dv)} → " +
-                        (f"{', '.join(b['ten'])} báo cao hơn POS" if b["chac"] else f"kiểm tra {', '.join(b['ten'])}"))
+        canh_bao.append(f"⚠ BC KHỐNG {MUC[b['muc']]['ten']}: các bạn báo {fmt_co_don_vi(b['tong'], dv)} nhưng thực tế "
+                        f"chỉ {fmt_co_don_vi(b['pos'], dv)} → " +
+                        (f"{', '.join(b['ten'])}" if b["chac"] else f"kiểm tra {', '.join(b['ten'])}"))
     if kq["chua_bao"]:
         canh_bao.append("⚠ Chưa báo cáo: " + ", ".join(kq["chua_bao"]))
     if not kq["co_phan_line"]:
@@ -319,7 +319,7 @@ def build_the_chot_so(ngay_str, kq):
                      {"type": "span", "text": kq["nhan_xet"], "color": "#333333"}]}]})
     cuoi.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
                  "contents": [_t("% đạt từng bạn = trung bình % các mục được giao · xanh ≥100% · vàng 80–99% · "
-                                 "đỏ <80% · Có tư vấn = các bạn báo / POS", "xxs", GRAY)]})
+                                 "đỏ <80% · Có tư vấn = các bạn báo / thực tế (POS)", "xxs", GRAY)]})
     tieu_de = f"CHỐT SỐ · {_ngay_hien(ngay_str)}"
     dong_phu = [f"Ngày {ch['ngay_thu']}/{ch['so_ngay']} · {kq['so_bao']}/{kq['so_nguoi']} bạn đã báo · đơn vị: triệu"]
     bubble = _bubble(tieu_de, dong_phu, dau + tung_ban + cuoi)

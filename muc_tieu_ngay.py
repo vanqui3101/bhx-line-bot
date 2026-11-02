@@ -599,9 +599,9 @@ def _nhan_xet(kq):
             else:
                 nhom.append(NHAN_NGAN[b["muc"]])
         if theo_ten:
-            cau.append("báo cao hơn POS: " + ", ".join(f"{t} ({', '.join(v)})" for t, v in theo_ten.items()))
+            cau.append("BC KHỐNG: " + ", ".join(f"{t} ({', '.join(v)})" for t, v in theo_ten.items()))
         if nhom:
-            cau.append("tổng các bạn báo vượt POS ở " + ", ".join(nhom) + " – cần kiểm tra lại")
+            cau.append("có BC KHỐNG ở " + ", ".join(nhom) + " (tổng báo cao hơn thực tế) – cần kiểm tra lại")
     if kq["chua_bao"]:
         cau.append("chưa báo: " + ", ".join(kq["chua_bao"]))
     s = "; ".join(cau) + "."
