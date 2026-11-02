@@ -421,7 +421,7 @@ def _mtkm_bar(pct):
 def _mtkm_khoi(icon_title, sub_title, so, fmt, don_vi_con_lai, ghi_chu=None):
     """Vẽ 1 khối (Nấm / Tuần / 888). fmt: hàm định dạng số."""
     thieu = so["con_thieu_hom_nay"]
-    thieu_text = f"-{fmt(thieu)}" if thieu > 0 else "Đã đủ ✓"
+    thieu_text = f"-{fmt(thieu)}" if thieu > 0 else "Đã đủ"
     thieu_color = RED if thieu > 0 else GREEN
 
     o = [
@@ -510,8 +510,6 @@ def _mtkm_bang(title, sub, ten_cot_mt, dong, lay):
     for i, s in enumerate(dong):
         mt, dt, pct, dat = lay(s)
         pct_txt = f"{pct:.0f}%" if title.startswith("HÔM") else f"{pct:.1f}%".replace(".", ",")
-        if dat:
-            pct_txt += " ✓"
         if i:
             rows.append({"type": "separator", "color": DIVIDER})
         rows.append(_mtkm_bang_hang(
@@ -582,9 +580,9 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
                 _o(ten, cot[0], bg=bg),
                 _o(_mtkm_so(d["mt_ngay"], d["don_vi"]), cot[1], bold=d["la_tong"], bg=bg),
                 _o(_mtkm_so(d["hom_nay"], d["don_vi"]), cot[2], bold=True, bg=bg),
-                _o(f"{pct_ngay:.0f}%" + (" ✓" if dat_ngay else ""), cot[3], color=GREEN if dat_ngay else RED,
+                _o(f"{pct_ngay:.0f}%", cot[3], color=GREEN if dat_ngay else RED,
                    bold=True, bg=bg),
-                _o(f"{d['pct_thang']:.1f}%".replace(".", ",") + (" ✓" if dat_thang else ""), cot[4],
+                _o(f"{d['pct_thang']:.1f}%".replace(".", ","), cot[4],
                    color=GREEN if dat_thang else RED, bold=True, bg=bg),
             ]))
         body.append({"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px",

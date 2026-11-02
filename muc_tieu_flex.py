@@ -78,7 +78,7 @@ def _hang(cells, bg=None, pad="5px"):
     return {"type": "box", "layout": "horizontal", "contents": o_list}
 
 
-def _o2(tren, duoi, flex, mau=BLACK, dam=True, align="center", size="sm"):
+def _o2(tren, duoi, flex, mau=BLACK, dam=True, align="end", size="sm"):
     """Ô 2 dòng: số lớn + dòng nhỏ bên dưới (VD '1,50' / '/1,55')."""
     noi_dung = [_t(tren, size, mau, dam, align, wrap=False)]
     if duoi:
@@ -110,29 +110,30 @@ def _ten_muc(k):
 
 def _o_tieu_de(dong, flex, align="center"):
     """Ô tiêu đề cột: dòng 1 đậm, các dòng sau chữ nhỏ xám (VD tên bạn / ca / giờ báo)."""
-    noi_dung = [_t(dong[0], "xs", MTKM_GOLD_TEXT, True, align, wrap=False)]
-    noi_dung += [_t(x, "xxs", GRAY, False, align, wrap=False) for x in dong[1:] if x]
+    noi_dung = [_t(dong[0], "xs", MTKM_GOLD_TEXT, True, align)]  # cho xuống dòng: ngày đông người cột hẹp vẫn đủ chữ
+    noi_dung += [_t(x, "xxs", GRAY, False, align) for x in dong[1:] if x]
     return {"type": "box", "layout": "vertical", "flex": flex, "contents": noi_dung}
 
 
 def _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro):
     """(02/11/2026) Bảng kẻ ô: hàng = mục, cột = Cả cửa hàng + từng bạn (đọc dọc theo tên mình)."""
-    w_muc, w_ch, w_ng = 30, 20, 20
-    rows = [_hang([_o_tieu_de(["Mục"], w_muc, "start"), _o_tieu_de(["Cả CH", "MT ngày"], w_ch, "end")] +
-                  [_o_tieu_de([n["ten"], ca_txt(n["ca"])], w_ng) for n in nguoi], MTKM_HL_BG, "4px")]
+    w_muc, w_ch, w_ng = 30, 22, 20
+    cs = "sm" if len(nguoi) <= 4 else "xs"  # từ 5 bạn trở lên: chữ số nhỏ lại 1 cỡ để không bị cắt
+    rows = [_hang([_o_tieu_de(["Mục"], w_muc, "start"), _o_tieu_de(["MT NGÀY"], w_ch, "end")] +
+                  [_o_tieu_de([n["ten"], ca_txt(n["ca"])], w_ng, "end") for n in nguoi], MTKM_HL_BG, "4px")]
     for k in ds_muc:
         dv = MUC[k]["don_vi"]
         rows.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
-                           _t(fmt_so(ch["muc"][k]["mt_ngay"], dv), "sm", GRAY, False, "end", w_ch)] +
-                          [_t(fmt_so(n["mt"][k], dv) if n["mt"].get(k) else "–", "sm",
-                              BLACK if n["mt"].get(k) else GRAY, bool(n["mt"].get(k)), "center", w_ng)
+                           _t(fmt_so(ch["muc"][k]["mt_ngay"], dv), cs, GRAY, False, "end", w_ch)] +
+                          [_t(fmt_so(n["mt"][k], dv) if n["mt"].get(k) else "–", cs,
+                              BLACK if n["mt"].get(k) else GRAY, bool(n["mt"].get(k)), "end", w_ng)
                            for n in nguoi], pad="4px"))
     if vai_tro == "thu_ngan":
         tien = [k for k in ds_muc if MUC[k]["don_vi"] == "tr"]
         tong_ch = sum(ch["muc"][k]["mt_ngay"] or 0 for k in tien)
         rows.append(_hang([_t("Tổng tiền", "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
-                           _t(fmt_so(tong_ch, "tr"), "sm", GRAY, True, "end", w_ch)] +
-                          [_t(fmt_so(sum(n["mt"].get(k, 0) for k in tien), "tr"), "sm", RED, True, "center", w_ng)
+                           _t(fmt_so(tong_ch, "tr"), cs, GRAY, True, "end", w_ch)] +
+                          [_t(fmt_so(sum(n["mt"].get(k, 0) for k in tien), "tr"), cs, RED, True, "end", w_ng)
                            for n in nguoi], NEN_TONG, "4px"))
     return {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
@@ -207,7 +208,7 @@ def _bang_cua_hang(ch):
         rows.append(_hang([ten_cell,
                            _t(fmt_so(m["mt_ngay"], dv), "sm", BLACK, False, "end", 22),
                            _t(fmt_so(m["pos"], dv) if m["pos"] is not None else "–", "sm", BLACK, True, "end", 22),
-                           _t((pct_txt(p) + (" ✓" if p >= 100 else "")) if p is not None else "–", "sm",
+                           _t(pct_txt(p) if p is not None else "–", "sm",
                               _mau_pct(p), True, "end", 22)]))
     return {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
@@ -216,10 +217,13 @@ def _bang_tung_ban(bang, ds_muc, ch):
     """(02/11/2026) 2 bảng kẻ ô:
        1) hàng = mục, cột = từng bạn: số báo (to) / mục tiêu (nhỏ), màu theo % · hàng cuối = % đạt
        2) đối chiếu POS: Các bạn báo | POS | Có tư vấn"""
-    dong = bang["dong"]
+    # cùng thứ tự với thẻ mục tiêu sáng: ca sáng -> cả ngày -> ca chiều -> báo ngoài line
+    thu_tu = {"sáng": 0, "cả ngày": 1, "chiều": 2}
+    dong = sorted(bang["dong"], key=lambda d: thu_tu.get(d["ca"], 3))
     w_muc, w_ng = 30, 22
+    cs = "sm" if len(dong) <= 4 else "xs"
     rows = [_hang([_o_tieu_de(["Mục"], w_muc, "start")] +
-                  [_o_tieu_de([d["ten"], d["ca"], (f"báo {d['gio']}" if d.get("gio") else "")], w_ng) for d in dong],
+                  [_o_tieu_de([d["ten"], d["ca"], (f"báo {d['gio']}" if d.get("gio") else "")], w_ng, "end") for d in dong],
                   MTKM_HL_BG, "4px")]
     for k in ds_muc:
         dv = MUC[k]["don_vi"]
@@ -234,15 +238,15 @@ def _bang_tung_ban(bang, ds_muc, ch):
                 cells.append(_o2("–", "", w_ng, GRAY, False))
                 continue
             p = (bc / mt * 100) if mt else None
-            cells.append(_o2(fmt_so(bc, dv), f"/{fmt_so(mt, dv)}" if mt else "", w_ng, _mau_pct(p)))
+            cells.append(_o2(fmt_so(bc, dv), f"/{fmt_so(mt, dv)}" if mt else "", w_ng, _mau_pct(p), size=cs))
         rows.append(_hang(cells, pad="4px"))
     hang_pct = [_t("% đạt", "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
     for d in dong:
         if d["da_bao"] and d["pct"] is not None:
-            hang_pct.append(_t(pct_txt(d["pct"]), "sm", _mau_pct(d["pct"]), True, "center", w_ng))
+            hang_pct.append(_t(pct_txt(d["pct"]), cs, _mau_pct(d["pct"]), True, "end", w_ng))
         else:
             hang_pct.append(_t("chưa báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
-                               True, "center", w_ng))
+                               True, "end", w_ng))
     rows.append(_hang(hang_pct, NEN_TONG, "4px"))
     bang1 = {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
