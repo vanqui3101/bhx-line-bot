@@ -1352,6 +1352,11 @@ def handle_text_message(event):
                     ngay_pl = now_vn + _td(days=1) if now_vn.hour >= 21 else now_vn
                 ngay_str = ngay_pl.strftime("%Y-%m-%d")
                 storage.save_phan_line(ngay_str, data)
+                # (02/11/2026) Xoá bài phân line của các ngày đã qua (giữ hôm qua để còn chốt số / sửa số)
+                try:
+                    storage.xoa_phan_line_truoc(_ngay_hom_qua_str())
+                except Exception:
+                    traceback.print_exc()
                 # (01/11/2026) Trả ngay THẺ MỤC TIÊU NGÀY TỪNG BẠN (thẻ riêng, không dính MTKM)
                 bubble = None
                 try:
@@ -1428,6 +1433,14 @@ def handle_text_message(event):
                 if m_ngay:
                     ngay_chot = f"{_now_vn_datetime().year}-{int(m_ngay.group(2)):02d}-{int(m_ngay.group(1)):02d}"
                 kq_chot = muc_tieu_ngay.tinh_chot_so(ngay_chot)
+                if kq_chot is not None:
+                    try:
+                        storage.save_chot_so(ngay_chot, {
+                            vt: [{k: d.get(k) for k in ("ten", "ca", "mt", "bc", "pct", "da_bao")}
+                                 for d in kq_chot["bang"].get(vt, {}).get("dong", [])]
+                            for vt in ("thu_ngan", "fresh")})
+                    except Exception:
+                        traceback.print_exc()
                 if kq_chot is None:
                     notify_text(messaging_api, event.reply_token, target_id,
                                 "Tháng này chưa cài mục tiêu ngày nên chưa chốt số được anh ạ.")

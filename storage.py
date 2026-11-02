@@ -777,3 +777,21 @@ def xoa_bao_cao_ban_hang(ngay, ten):
     n = cur.rowcount
     conn.close()
     return n > 0
+# (02/11/2026) Hết ngày thì xoá bài phân line cũ (giữ lại hôm qua để anh còn chốt số / sửa số buổi sáng)
+def xoa_phan_line_truoc(ngay):
+    conn = _connect_phanline()
+    with conn:
+        cur = conn.execute("DELETE FROM phan_line WHERE ngay < ?", (ngay,))
+    n = cur.rowcount
+    conn.close()
+    return n
+# (02/11/2026) Lưu kết quả CHỐT SỐ từng ngày (mục tiêu + báo cáo + % từng bạn) để sau này đánh giá tuần/tháng
+# — vẫn còn dữ liệu dù bài phân line đã bị xoá.
+def save_chot_so(ngay, data):
+    conn = _connect()
+    conn.execute("CREATE TABLE IF NOT EXISTS chot_so (ngay TEXT PRIMARY KEY, data_json TEXT NOT NULL)")
+    with conn:
+        conn.execute("INSERT INTO chot_so (ngay, data_json) VALUES (?, ?) "
+                     "ON CONFLICT(ngay) DO UPDATE SET data_json=excluded.data_json",
+                     (ngay, json.dumps(data, ensure_ascii=False)))
+    conn.close()

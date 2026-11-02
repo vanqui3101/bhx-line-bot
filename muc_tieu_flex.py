@@ -110,8 +110,9 @@ def build_the_muc_tieu(ngay_str, ch, tb):
         for j, n in enumerate(nguoi):
             mt = n["mt"]
             if vai_tro == "thu_ngan":
-                phai = fmt_so(mt.get("sk", 0) + mt.get("dm", 0), "tr") + "tr"
+                phai = fmt_so(mt.get("sk", 0) + mt.get("dm", 0) + mt.get("hmp", 0), "tr") + "tr"
                 chi_tiet = (f"Sữa khô {fmt_so(mt.get('sk'), 'tr')} · Đông mát {fmt_so(mt.get('dm'), 'tr')} · "
+                            f"HMP {fmt_so(mt.get('hmp'), 'tr')} · "
                             f"C2 {fmt_so(mt.get('c2'), 'lốc')} lốc · 888: {fmt_so(mt.get('ng888'), 'túi')} túi")
             else:
                 phai = f"Cá {fmt_so(mt.get('ca'), 'tr')}tr"
@@ -188,7 +189,7 @@ def _bang_cua_hang(ch):
 
 
 def _bang_tung_ban(bang, ds_muc, ch):
-    tieu_de_cot = {"sk": "Sữa khô", "dm": "Đông mát", "c2": "C2", "ng888": "888",
+    tieu_de_cot = {"sk": "Sữa khô", "dm": "Đông mát", "hmp": "HMP", "c2": "C2", "ng888": "888",
                    "ca": "Cá", "trung": "Trứng", "heo": "Heo C.P"}
     co = {"ten": 22, "muc": max(int(60 / len(ds_muc)), 14), "pct": 18}
     rows = [_hang([_t("Tên", "xxs", MTKM_GOLD_TEXT, True, flex=co["ten"])] +

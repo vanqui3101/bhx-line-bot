@@ -37,7 +37,7 @@ TY_LE_CA = {"sang": 0.4, "chieu": 0.6}
 TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 
 # Thứ tự cột trên thẻ
-MUC_THU_NGAN = ["sk", "dm", "c2", "ng888"]
+MUC_THU_NGAN = ["sk", "dm", "hmp", "c2", "ng888"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -46,6 +46,10 @@ MUC = {
     "dm": {"ten": "Đông mát", "don_vi": "tr", "vai_tro": "thu_ngan",
            "nganh": ["Sản Phẩm Từ Sữa - Bảo Quản Mát", "Kem các loại",
                      "Thực phẩm đông lạnh - Hàng mát các loại"]},
+    # (02/11/2026) Hoá mỹ phẩm = chăm sóc cá nhân + chăm sóc nhà cửa (giống POS 835)
+    "hmp": {"ten": "Hóa mỹ phẩm", "don_vi": "tr", "vai_tro": "thu_ngan",
+            "nganh": ["Mỹ phẩm các loại", "Làm Đẹp", "Trang Thiết Bị Y Tế",
+                      "Hóa phẩm các loại", "Dụng cụ gia đình", "Dụng cụ nhà bếp"]},
     "c2": {"ten": "C2", "don_vi": "lốc", "vai_tro": "thu_ngan", "truong": "c2_loc", "nguyen": True},
     "ng888": {"ten": "888", "don_vi": "túi", "vai_tro": "thu_ngan", "truong": "nuoc_giat_888.sl", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
@@ -54,17 +58,18 @@ MUC = {
 }
 
 # Mục tiêu tháng (chốt với anh Quí 01/11/2026)
-#  sk: base T9 x120% (chia theo tỉ trọng 4 ngành ĐMSK 471tr) · dm = sữa mát + kem + đông lạnh
+#  sk: base T9 x120% (chia theo tỉ trọng 4 ngành ĐMSK 471tr) · dm = sữa mát + kem + đông lạnh · hmp: base T10 x115%
 #  c2: anh Quí chốt 01/11: trung bình 30 lốc/ngày (thùng TH24 = 4 lốc, tính cả online) · 888: tối thiểu 200 túi
 #  trung: 25 vỉ/ngày (sáng 10 + chiều 15) · heo: T9 728,7kg x110%
 #  ca: (cá + trứng 75,953tr) - tiền 750 vỉ trứng (giá TB T10 ~25.039đ/vỉ = 18,779tr) = 57,174tr;
 #      tuần 1 (01-07/11) cá + trứng phải chạy nhịp +15% (19,983tr) -> cá tuần 1 = 19,983 - 175 vỉ x 25.039 = 15,601tr
-NHAN_NGAN = {"sk": "sữa khô", "dm": "đông mát", "c2": "C2", "ng888": "888",
+NHAN_NGAN = {"sk": "sữa khô", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
         "sk": {"muc_tieu": 231_864_000},
+        "hmp": {"muc_tieu": 280_100_000},   # (02/11/2026) base T10 243,56tr x 115%
         "dm": {"muc_tieu": 239_136_000},
         "c2": {"muc_tieu": 900},
         "ng888": {"muc_tieu": 200},
@@ -289,6 +294,7 @@ def ca_txt(ds_ca):
 # ---------------------------------------------------------------------------
 # Từ khoá dò trên bản KHÔNG DẤU (giữ nguyên vị trí ký tự so với bản NFC)
 _TU_KHOA = [
+    ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),
     ("dm", r"dong\s*mat|d\.\s*mat|(?<![a-z0-9])dm(?![a-z0-9])"),
     ("c2", r"(?<![a-z0-9])c\s?2(?![0-9])"),
@@ -523,7 +529,7 @@ def _nhan_xet(kq):
         dat = [MUC[k]["ten"] for k in MUC_THU_NGAN + MUC_FRESH if (ch["muc"][k]["pct"] or 0) >= 100]
         thieu = sorted(((ch["muc"][k]["pct"] or 0, k) for k in MUC_THU_NGAN + MUC_FRESH
                         if (ch["muc"][k]["pct"] or 0) < 100))
-        s = f"Cửa hàng đạt {len(dat)}/7 mục tiêu ngày"
+        s = f"Cửa hàng đạt {len(dat)}/{len(MUC_THU_NGAN + MUC_FRESH)} mục tiêu ngày"
         if thieu:
             s += " – hụt nhiều nhất " + ", ".join(f"{MUC[k]['ten']} {p:.0f}%" for p, k in thieu[:2])
         cau.append(s)
