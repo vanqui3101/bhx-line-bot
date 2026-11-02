@@ -555,7 +555,7 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
         }]
         for i, d in enumerate(dong):
             dat_ngay = d["pct_ngay"] >= 100
-            dat_thang = d["pct_thang"] >= tien_do
+            dat_thang = d["pct_thang"] >= (d["tien_do_rieng"] if d.get("tien_do_rieng") is not None else tien_do)
             ten_cells = [_mtkm_o(d["ten"], 34, "start", MTKM_GOLD_TEXT, True)]
             if d.get("nhan_gd"):
                 ten_cells = [{"type": "box", "layout": "vertical", "flex": 34, "contents": [
@@ -567,7 +567,8 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
                 "contents": ten_cells + [
                     _mtkm_o(_mtkm_so(d["mt_ngay"], d["don_vi"]), 17, bold=d["la_tong"]),
                     _mtkm_o(_mtkm_so(d["hom_nay"], d["don_vi"]), 17, bold=d["la_tong"]),
-                    _mtkm_o(f"{d['pct_ngay']:.0f}%" + (" ✓" if dat_ngay else ""), 15,
+                    _mtkm_o(f"{(math.floor(d['pct_ngay']) if d['pct_ngay'] < 100 else round(d['pct_ngay'])):.0f}%"
+                            + (" ✓" if dat_ngay else ""), 15,
                             color=GREEN if dat_ngay else RED, bold=True),
                     _mtkm_o(f"{d['pct_thang']:.1f}%".replace(".", ",") + (" ✓" if dat_thang else ""), 17,
                             color=GREEN if dat_thang else RED, bold=True),
@@ -620,7 +621,8 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
         body.append({"type": "text", "text": "Chưa có mục tiêu MTKM cho tháng này.", "size": "sm",
                      "color": GRAY, "margin": "md", "wrap": True})
 
-    ghi = ["Đơn vị: triệu đồng (heo: kg, 888: túi) · MT ngày đã dồn phần thiếu"]
+    ghi = ["Đơn vị: triệu đồng (heo: kg, Celano/C2: lốc, 888: túi) · MT ngày đã dồn phần thiếu · "
+           "Celano: % là % của cả chu kỳ thi đua"]
     ghi_do = list(kq.get("ghi_chu") or [])
     if kq.get("ngay_thieu"):
         ghi_do.append(f"⚠ Chưa có dữ liệu ngày {', '.join(kq['ngay_thieu'])} (đang tính = 0)")

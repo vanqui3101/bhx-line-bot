@@ -55,12 +55,21 @@ MUC_TIEU_THANG = {
              "muc_tieu": 113_268_000, "cho": "thu_ngan"},
             {"key": "dmsk", "ten": "Tổng ĐMSK", "gom": ["sk", "sm", "kem", "dl"], "don_vi": "tr",
              "muc_tieu": 471_000_000, "la_tong": True},
+            # (02/11/2026) Hóa mỹ phẩm ngay dưới Tổng ĐMSK — base T10 243,56tr x 115%
+            {"key": "hmp", "ten": "Hóa mỹ phẩm", "don_vi": "tr", "muc_tieu": 280_100_000,
+             "nganh": ["Mỹ phẩm các loại", "Làm Đẹp", "Trang Thiết Bị Y Tế",
+                       "Hóa phẩm các loại", "Dụng cụ gia đình", "Dụng cụ nhà bếp"]},
             {"key": "ca_trung", "ten": "Cá + Trứng", "nganh": NGANH_THUY_HAI_SAN, "pt": PT_TRUNG,
              "don_vi": "tr", "muc_tieu": 75_953_000, "cho": "fresh",
              # Tuần 1 phải chạy nhịp +15% so tháng 10 (74,46tr × 1,15 / 30 × 7)
              "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 19_983_000}]},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",
              "muc_tieu": 801.6, "cho": "fresh"},
+            # (02/11/2026) Nhóm đếm số lượng: Celano (sữa lốc, chỉ trong chu kỳ thi đua) · C2 · nước giặt 888
+            {"key": "celano", "ten": "Celano (lốc)", "truong": "celano_loc", "don_vi": "loc", "muc_tieu": 0,
+             "chi_trong_giai_doan": True,
+             "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"}]},
+            {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
             {"key": "ng888", "ten": "Nước giặt 888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
              "muc_tieu": 200, "cho": "thu_ngan"},
         ],
@@ -130,11 +139,15 @@ def tinh_mtkm(ngay_bc_str):
     da_luu = storage.get_category_reports_range(_s(dau_thang), _s(ngay_bc))
     theo_ngay = {}     # key -> {date: value}
     thieu = set()
-    for dong in cau_hinh["dong"]:
+    def _gd_cua(dong):
+        return next((g for g in dong.get("giai_doan", []) if _d(g["tu"]) <= ngay_bc <= _d(g["den"])), None)
+
+    ds_dong = [dg for dg in cau_hinh["dong"] if not (dg.get("chi_trong_giai_doan") and not _gd_cua(dg))]
+    for dong in ds_dong:
         if dong.get("la_tong"):
             continue
         theo_ngay[dong["key"]] = {}
-        d = dau_thang
+        d = _d(_gd_cua(dong)["tu"]) if dong.get("chi_trong_giai_doan") else dau_thang
         while d <= ngay_bc:
             p = da_luu.get(_s(d))
             v = _gia_tri(p, dong) if p is not None else None
@@ -146,7 +159,7 @@ def tinh_mtkm(ngay_bc_str):
             d += timedelta(days=1)
     ket_qua["ngay_thieu"] = [x.strftime("%d/%m") for x in sorted(thieu)]
 
-    for dong in cau_hinh["dong"]:
+    for dong in ds_dong:
         if dong.get("la_tong"):
             gop = {}
             for kk in dong["gom"]:
@@ -157,14 +170,19 @@ def tinh_mtkm(ngay_bc_str):
             tn = theo_ngay[dong["key"]]
         # mục tiêu ngày: nếu đang trong 1 giai đoạn riêng (VD tuần 1) thì tính theo giai đoạn đó
         gd = next((g for g in dong.get("giai_doan", []) if _d(g["tu"]) <= ngay_bc <= _d(g["den"])), None)
+        tien_do_rieng = None
         if gd:
             mt_ngay = _mt_ngay(gd["muc_tieu"], tn, _d(gd["tu"]), _d(gd["den"]), ngay_bc)
-            nhan_gd = f"Tuần 1 ({_d(gd['tu']).strftime('%d')}–{_d(gd['den']).strftime('%d/%m')})"
+            nhan_gd = gd.get("nhan") or f"Tuần 1 ({_d(gd['tu']).strftime('%d')}–{_d(gd['den']).strftime('%d/%m')})"
+            if dong.get("chi_trong_giai_doan"):
+                # thi đua theo chu kỳ: % tính trên mục tiêu chu kỳ, tiến độ theo số ngày của chu kỳ
+                so_ngay_gd = (_d(gd["den"]) - _d(gd["tu"])).days + 1
+                tien_do_rieng = ((ngay_bc - _d(gd["tu"])).days + 1) / so_ngay_gd * 100
         else:
             mt_ngay = _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc)
             nhan_gd = None
-        if dong["don_vi"] == "tui":
-            mt_ngay = math.ceil(mt_ngay)
+        if dong["don_vi"] in ("tui", "loc"):
+            mt_ngay = math.ceil(mt_ngay - 1e-9)
         hom_nay = tn.get(ngay_bc, 0.0)
         luy_ke = sum(v for dd, v in tn.items() if dd <= ngay_bc)
         ket_qua["dong"].append({
@@ -173,7 +191,9 @@ def tinh_mtkm(ngay_bc_str):
             "muc_tieu": dong["muc_tieu"], "mt_ngay": mt_ngay, "hom_nay": hom_nay,
             "luy_ke": luy_ke, "nhan_gd": nhan_gd,
             "pct_ngay": (hom_nay / mt_ngay * 100) if mt_ngay else 100.0,
-            "pct_thang": (luy_ke / dong["muc_tieu"] * 100) if dong["muc_tieu"] else 0.0,
+            "pct_thang": ((luy_ke / gd["muc_tieu"] * 100) if (tien_do_rieng is not None and gd["muc_tieu"])
+                          else (luy_ke / dong["muc_tieu"] * 100) if dong["muc_tieu"] else 0.0),
+            "tien_do_rieng": tien_do_rieng,
         })
 
     # (01/11/2026) Mục tiêu TỪNG BẠN đã tách sang thẻ riêng (muc_tieu_ngay.py — gửi khi anh đăng
@@ -239,13 +259,17 @@ def _fmt(v, don_vi):
         return f"{v / 1_000_000:.2f}".replace(".", ",") + "tr"
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",") + "kg"
-    return f"{v:.0f} túi"
+    return f"{v:.0f} " + ("lốc" if don_vi == "loc" else "túi")
 
 
 def tom_tat_text(kq):
     """Bản chữ ngắn gọn (dùng cho tin xác nhận khi nạp file + AI phân tích)."""
     dong = []
     for s in kq.get("dong", []):
+        if s.get("tien_do_rieng") is not None:
+            dong.append(f"{s['ten']}: hôm nay {_fmt(s['hom_nay'], s['don_vi'])} / MT ngày {_fmt(s['mt_ngay'], s['don_vi'])}"
+                        f" ({s['pct_ngay']:.0f}%) · lũy kế chu kỳ {_fmt(s['luy_ke'], s['don_vi'])}")
+            continue
         dong.append(
             f"{s['ten']}: hôm nay {_fmt(s['hom_nay'], s['don_vi'])} / MT ngày {_fmt(s['mt_ngay'], s['don_vi'])}"
             f" ({s['pct_ngay']:.0f}%) · lũy kế {_fmt(s['luy_ke'], s['don_vi'])} / {_fmt(s['muc_tieu'], s['don_vi'])}"
