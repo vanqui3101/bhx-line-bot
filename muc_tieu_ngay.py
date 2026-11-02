@@ -79,7 +79,7 @@ MUC_TIEU_THANG = {
         "celano": {"chi_trong_giai_doan": True,
                    "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183,
                                   "muc_tieu_tien": 6_015_000}]},
-        "ng888": {"muc_tieu": 200},
+        "ng888": {"muc_tieu": 600},  # (02/11/2026) anh nâng lên 20 túi/ngày x 30 ngày (trước: 200 túi/tháng)
         "ca": {"muc_tieu": 57_174_000,
                "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},
         "trung": {"muc_tieu": 750},

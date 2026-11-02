@@ -7,7 +7,7 @@ Các dòng:
   Sữa khô · Sữa mát · Kem · Đông lạnh – hàng mát · Tổng ĐMSK   (base T9 × 120% = 471tr)
   Cá + Trứng   (base T10 × 102%; riêng tuần 1 01–07/11 phải chạy nhịp +15%)
   Heo C.P (kg) (base T9 728,7kg × 110%, tính cả da mỡ)
-  Nước giặt 888 (túi) (mục tiêu tối thiểu 200 túi/tháng)
+  Nước giặt 888 (túi) (mục tiêu 20 túi/ngày = 600 túi/tháng, từ 02/11/2026)
 Kèm phần MỤC TIÊU TỪNG BẠN: đọc bài phân line của ngày, chia MT ngày
   - Thu ngân: sữa khô / sữa mát / kem / đông lạnh / 888
   - Fresh:    cá + trứng / heo C.P
@@ -71,7 +71,7 @@ MUC_TIEU_THANG = {
              "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"}]},
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
             {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
-             "muc_tieu": 200, "cho": "thu_ngan"},
+             "muc_tieu": 600, "cho": "thu_ngan"},  # (02/11/2026) 20 túi/ngày
         ],
     },
 }
