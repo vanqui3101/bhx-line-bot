@@ -51,6 +51,14 @@ CATEGORY_COL = {
     "hinh_thuc_xuat": "Tên hình thức xuất bán",
 }
 
+# (02/11/2026) Thi đua Celano tháng 11 (KV anh Nam) — 4 mã Model tính thưởng
+CELANO_MODELS = {
+    "2609001656",  # Yến mạch vị Café latte 180ml
+    "2609001221",  # Yến mạch vị Matcha latte 180ml
+    "2609001657",  # Yến mạch vị Nguyên bản 180ml
+    "2609001223",  # Trà sữa vị Gạo rang có thạch 170ml
+}
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -196,6 +204,8 @@ def _empty_day_acc():
         "c2_loc": 0.0,
         "trung_vi": 0.0,
         "heo_cp_damo_kg": 0.0,
+        "celano_loc": 0.0,
+        "celano_tien": 0.0,
     }
 
 
@@ -245,6 +255,9 @@ def _finish_day_payload(ngay_str, acc):
         "c2_loc": acc["c2_loc"],
         "trung_vi": acc["trung_vi"],
         "heo_cp_damo_kg": acc["heo_cp_damo_kg"],
+        # (02/11/2026) Thi đua Celano 4 SKU (theo mã Model) — quy ra LỐC 4 hộp + doanh thu
+        "celano_loc": acc["celano_loc"],
+        "celano_tien": acc["celano_tien"],
     }
 
 
@@ -272,6 +285,7 @@ def read_category_rows_by_date(input_path):
         )
     # Cột không bắt buộc (file cũ có thể không có)
     i_phan_tich = header.index("Ngành hàng - Phân tích") if "Ngành hàng - Phân tích" in header else None
+    i_model = header.index("Model") if "Model" in header else None
 
     theo_ngay = {}
     for row in rows_iter:
@@ -337,6 +351,14 @@ def read_category_rows_by_date(input_path):
                 and str(row[i_phan_tich] or "").strip() == "Trứng Các Loại"):
             m_cb = re.search(r"COMBO\s*(\d+)", ten_sp_upper)
             acc["trung_vi"] += sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
+
+        # ---- (02/11/2026) CELANO 4 SKU thi đua (Model) -> lốc 4 hộp + doanh thu ----
+        if (not la_tang and i_model is not None and i_model < len(row)
+                and str(row[i_model] or "").strip() in CELANO_MODELS):
+            don_vi_up = str(cell("don_vi") or "").strip().upper()
+            he_so = {"HỘP": 0.25, "THÙNG": 12}.get(don_vi_up, 1)
+            acc["celano_loc"] += sl_thuc_xuat * he_so
+            acc["celano_tien"] += thanh_tien
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

@@ -10,9 +10,11 @@ from datetime import datetime
 import storage
 from flex_builder import (YELLOW, RED, GRAY, GREEN, DIVIDER, PAGE_BG, BLACK,
                           MTKM_GOLD_TEXT, MTKM_GOLD_SUB, MTKM_HL_BG, MTKM_SEC_BG)
-from muc_tieu_ngay import MUC, MUC_THU_NGAN, MUC_FRESH, fmt_so, fmt_co_don_vi, ca_txt, pct_txt
+from muc_tieu_ngay import MUC, fmt_so, fmt_co_don_vi, ca_txt, pct_txt
 
 VANG = "#C27C0E"
+NHAN_THE = {"sk": "Sữa khô", "celano": "Celano", "dm": "Đông mát", "hmp": "HMP", "c2": "C2", "ng888": "888",
+            "ca": "Cá", "trung": "Trứng", "heo": "Heo C.P"}
 NEN_TONG = "#FFF8EC"
 NEN_XANH = "#EAF6EE"
 CHU_XANH = "#1E6B3A"
@@ -86,8 +88,8 @@ def _bubble(tieu_de, dong_phu, body):
 
 def _dong_muc_tieu_cua_hang(ch):
     m = ch["muc"]
-    d1 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in MUC_THU_NGAN)
-    d2 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in MUC_FRESH)
+    d1 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in ch["thu_ngan"])
+    d2 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in ch["fresh"])
     return [d1, d2]
 
 
@@ -101,7 +103,7 @@ def build_the_muc_tieu(ngay_str, ch, tb):
                  "paddingEnd": "12px", "contents": [_t(x, "sm", MTKM_GOLD_TEXT, True, margin="xs")
                                                     for x in _dong_muc_tieu_cua_hang(ch)]})
     chua_dk = []
-    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", MUC_THU_NGAN), ("fresh", "FRESH", MUC_FRESH)):
+    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", ch["thu_ngan"]), ("fresh", "FRESH", ch["fresh"])):
         nguoi = tb.get(vai_tro) or []
         if not nguoi:
             continue
@@ -109,15 +111,14 @@ def build_the_muc_tieu(ngay_str, ch, tb):
         nguoi = sorted(nguoi, key=lambda n: (0 if n["ca"][0] == "sang" else 1, len(n["ca"])))
         for j, n in enumerate(nguoi):
             mt = n["mt"]
+            # liệt kê đúng các mục đang giao hôm đó (VD Celano chỉ có trong chu kỳ thi đua)
+            chi_tiet = " · ".join(f"{NHAN_THE[k]} " + (fmt_so(mt[k], "tr") if MUC[k]["don_vi"] == "tr"
+                                                       else fmt_co_don_vi(mt[k], MUC[k]["don_vi"]))
+                                  for k in ds_muc if k in mt)
             if vai_tro == "thu_ngan":
-                phai = fmt_so(mt.get("sk", 0) + mt.get("dm", 0) + mt.get("hmp", 0), "tr") + "tr"
-                chi_tiet = (f"Sữa khô {fmt_so(mt.get('sk'), 'tr')} · Đông mát {fmt_so(mt.get('dm'), 'tr')} · "
-                            f"HMP {fmt_so(mt.get('hmp'), 'tr')} · "
-                            f"C2 {fmt_so(mt.get('c2'), 'lốc')} lốc · 888: {fmt_so(mt.get('ng888'), 'túi')} túi")
+                phai = fmt_so(sum(mt.get(k, 0) for k in ds_muc if MUC[k]["don_vi"] == "tr"), "tr") + "tr"
             else:
                 phai = f"Cá {fmt_so(mt.get('ca'), 'tr')}tr"
-                chi_tiet = (f"Cá {fmt_so(mt.get('ca'), 'tr')}tr · Trứng {fmt_so(mt.get('trung'), 'vỉ')} vỉ · "
-                            f"Heo C.P {fmt_so(mt.get('heo'), 'kg')}kg")
             if j:
                 body.append({"type": "separator", "color": DIVIDER})
             body.append({"type": "box", "layout": "vertical", "paddingAll": "7px", "paddingStart": "12px",
@@ -164,7 +165,7 @@ def _bang_cua_hang(ch):
                    _t("MT ngày", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
                    _t("POS", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
                    _t("% đạt", "xxs", MTKM_GOLD_TEXT, True, "end", 22)], MTKM_HL_BG)]
-    for i, k in enumerate(MUC_THU_NGAN + MUC_FRESH):
+    for i, k in enumerate(ch["thu_ngan"] + ch["fresh"]):
         m = ch["muc"][k]
         dv = MUC[k]["don_vi"]
         ten = MUC[k]["ten"] + ("" if dv == "tr" else f" ({dv})")
@@ -173,6 +174,11 @@ def _bang_cua_hang(ch):
             phu = f"tiền trứng {fmt_so(m['tien'], 'tr')}tr"
         elif k == "heo" and m.get("da_mo"):
             phu = f"trong đó da mỡ {fmt_so(m['da_mo'], 'kg')}kg"
+        elif m.get("chu_ky"):
+            ck = m["chu_ky"]
+            mt_ck = f"{ck['muc_tieu_tien'] / 1_000_000:.3f}".rstrip("0").rstrip(".").replace(".", ",")
+            phu = (f"thi đua {ck['tu'][8:10]}–{ck['den'][8:10]}/{ck['den'][5:7]}: "
+                   f"{fmt_so(ck['tien'], 'tr')}/{mt_ck}tr")
         if phu:
             ten_cell = {"type": "box", "layout": "vertical", "flex": 34, "contents": [
                 _t(ten, "sm", MTKM_GOLD_TEXT, True), _t(phu, "xxs", GRAY)]}
@@ -189,7 +195,7 @@ def _bang_cua_hang(ch):
 
 
 def _bang_tung_ban(bang, ds_muc, ch):
-    tieu_de_cot = {"sk": "Sữa khô", "dm": "Đông mát", "hmp": "HMP", "c2": "C2", "ng888": "888",
+    tieu_de_cot = {"sk": "Sữa khô", "celano": "Celano", "dm": "Đông mát", "hmp": "HMP", "c2": "C2", "ng888": "888",
                    "ca": "Cá", "trung": "Trứng", "heo": "Heo C.P"}
     co = {"ten": 22, "muc": max(int(60 / len(ds_muc)), 14), "pct": 18}
     rows = [_hang([_t("Tên", "xxs", MTKM_GOLD_TEXT, True, flex=co["ten"])] +
@@ -242,13 +248,13 @@ def build_the_chot_so(ngay_str, kq):
     # Phần 1: mục tiêu ngày cửa hàng + MT ngày mai
     dau = [_sec("MỤC TIÊU NGÀY CỬA HÀNG"), _bang_cua_hang(ch)]
     mai = [f"{MUC[k]['ten']} {fmt_co_don_vi(ch['muc'][k]['mt_mai'], MUC[k]['don_vi'])}"
-           for k in MUC_THU_NGAN + MUC_FRESH if ch["muc"][k]["mt_mai"] is not None]
+           for k in ch["thu_ngan"] + ch["fresh"] if ch["muc"][k]["mt_mai"] is not None]
     if mai:
         dau.append(_hop_canh_bao(["MT ngày mai (đã dồn phần thiếu/dư): " + " · ".join(mai)], NEN_XANH, CHU_XANH))
     # Phần 2: từng bạn
     tung_ban = []
-    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "TỪNG BẠN · THU NGÂN", MUC_THU_NGAN),
-                                    ("fresh", "TỪNG BẠN · FRESH", MUC_FRESH)):
+    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "TỪNG BẠN · THU NGÂN", ch["thu_ngan"]),
+                                    ("fresh", "TỪNG BẠN · FRESH", ch["fresh"])):
         bang = kq["bang"].get(vai_tro)
         if bang and bang["dong"]:
             tung_ban += [_sec(tieu_de), _bang_tung_ban(bang, ds_muc, ch)]

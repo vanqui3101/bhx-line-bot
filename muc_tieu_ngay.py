@@ -37,12 +37,14 @@ TY_LE_CA = {"sang": 0.4, "chieu": 0.6}
 TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 
 # Thứ tự cột trên thẻ
-MUC_THU_NGAN = ["sk", "dm", "hmp", "c2", "ng888"]
+MUC_THU_NGAN = ["sk", "celano", "dm", "hmp", "c2", "ng888"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
     "sk": {"ten": "Sữa khô", "don_vi": "tr", "vai_tro": "thu_ngan",
            "nganh": ["Sữa - Thức uống bổ dưỡng các loại"]},
+    # (02/11/2026) Thi đua Celano 4 SKU (chu kỳ 02–08/11) — tính theo LỐC 4 hộp
+    "celano": {"ten": "Celano", "don_vi": "lốc", "vai_tro": "thu_ngan", "truong": "celano_loc", "nguyen": True},
     "dm": {"ten": "Đông mát", "don_vi": "tr", "vai_tro": "thu_ngan",
            "nganh": ["Sản Phẩm Từ Sữa - Bảo Quản Mát", "Kem các loại",
                      "Thực phẩm đông lạnh - Hàng mát các loại"]},
@@ -63,7 +65,7 @@ MUC = {
 #  trung: 25 vỉ/ngày (sáng 10 + chiều 15) · heo: T9 728,7kg x110%
 #  ca: (cá + trứng 75,953tr) - tiền 750 vỉ trứng (giá TB T10 ~25.039đ/vỉ = 18,779tr) = 57,174tr;
 #      tuần 1 (01-07/11) cá + trứng phải chạy nhịp +15% (19,983tr) -> cá tuần 1 = 19,983 - 175 vỉ x 25.039 = 15,601tr
-NHAN_NGAN = {"sk": "sữa khô", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
+NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P"}
 
 MUC_TIEU_THANG = {
@@ -72,6 +74,11 @@ MUC_TIEU_THANG = {
         "hmp": {"muc_tieu": 280_100_000, "giao_tu": "2026-11-02"},   # base T10 243,56tr x 115%; chia từng bạn từ 02/11
         "dm": {"muc_tieu": 239_136_000},
         "c2": {"muc_tieu": 900},
+        # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
+        # quy ra 183 lốc theo giá TB T10 32.866đ/lốc. Chỉ tính trong chu kỳ.
+        "celano": {"chi_trong_giai_doan": True,
+                   "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183,
+                                  "muc_tieu_tien": 6_015_000}]},
         "ng888": {"muc_tieu": 200},
         "ca": {"muc_tieu": 57_174_000,
                "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},
@@ -206,6 +213,12 @@ def tinh_cua_hang(ngay_str):
     thieu = []
     muc = {}
     for key in MUC_THU_NGAN + MUC_FRESH:
+        c = cfg_thang.get(key)
+        if not c:
+            continue
+        gd_nay = next((g for g in c.get("giai_doan", []) if _d(g["tu"]) <= ngay <= _d(g["den"])), None)
+        if c.get("chi_trong_giai_doan") and not gd_nay:
+            continue  # thi đua theo chu kỳ: ngoài chu kỳ thì không hiện
         theo_ngay = {}
         d = dau_thang
         while d <= ngay:
@@ -217,16 +230,29 @@ def tinh_cua_hang(ngay_str):
         mt = _mt_ngay_muc(cfg_thang, key, theo_ngay, ngay, dau_thang, cuoi_thang)
         mai = ngay + timedelta(days=1)
         mt_mai = None
-        if mai <= cuoi_thang:
+        if mai <= cuoi_thang and not (c.get("chi_trong_giai_doan") and mai > _d(gd_nay["den"])):
             theo_ngay_mai = dict(theo_ngay)
             mt_mai = _mt_ngay_muc(cfg_thang, key, theo_ngay_mai, mai, dau_thang, cuoi_thang)
         pos = _gia_tri(p_hom_nay, key) if p_hom_nay is not None else None
         muc[key] = {"mt_ngay": mt, "pos": pos, "mt_mai": mt_mai,
                     "pct": (pos / mt * 100) if (pos is not None and mt) else None}
-    muc["trung"]["tien"] = _tien_trung(p_hom_nay)
-    muc["heo"]["da_mo"] = (p_hom_nay or {}).get("heo_cp_damo_kg")
+        if gd_nay and gd_nay.get("muc_tieu_tien"):
+            # thi đua tính doanh thu: lũy kế tiền trong chu kỳ tới hôm nay
+            d = _d(gd_nay["tu"])
+            tien = 0.0
+            while d <= ngay:
+                tien += float((da_luu.get(_s(d)) or {}).get(f"{key}_tien") or 0)
+                d += timedelta(days=1)
+            muc[key]["chu_ky"] = {"tu": gd_nay["tu"], "den": gd_nay["den"], "tien": tien,
+                                  "muc_tieu_tien": gd_nay["muc_tieu_tien"]}
+    if "trung" in muc:
+        muc["trung"]["tien"] = _tien_trung(p_hom_nay)
+    if "heo" in muc:
+        muc["heo"]["da_mo"] = (p_hom_nay or {}).get("heo_cp_damo_kg")
     return {"ngay": ngay_str, "ngay_thu": ngay.day, "so_ngay": cuoi_thang.day,
             "co_pos": p_hom_nay is not None,
+            # các mục đang áp dụng hôm đó (thi đua theo chu kỳ chỉ có trong chu kỳ)
+            "thu_ngan": [k for k in MUC_THU_NGAN if k in muc], "fresh": [k for k in MUC_FRESH if k in muc],
             "ngay_thieu": [datetime.strptime(x, "%Y-%m-%d").strftime("%d/%m") for x in sorted(thieu)],
             "muc": muc}
 
@@ -263,7 +289,7 @@ def chia_tung_ban(ch, phan_line):
     """ch: kết quả tinh_cua_hang(). Trả về {"thu_ngan": [...], "fresh": [...], "fmcg": {ca: [tên]}}.
     Mỗi bạn: {"ten", "ca": ["sang"/"chieu"], "mt": {key: số}}."""
     kq = {"thu_ngan": [], "fresh": [], "fmcg": ds_theo_vai_tro(phan_line, "fmcg")}
-    for vai_tro, ds_muc in (("thu_ngan", MUC_THU_NGAN), ("fresh", MUC_FRESH)):
+    for vai_tro, ds_muc in (("thu_ngan", ch["thu_ngan"]), ("fresh", ch["fresh"])):
         ds_ca = ds_theo_vai_tro(phan_line, vai_tro)
         co_ca = [ca for ca in ("sang", "chieu") if ds_ca[ca]]
         if not co_ca:
@@ -305,6 +331,7 @@ def ca_txt(ds_ca):
 # ---------------------------------------------------------------------------
 # Từ khoá dò trên bản KHÔNG DẤU (giữ nguyên vị trí ký tự so với bản NFC)
 _TU_KHOA = [
+    ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])"),
     ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),
     ("dm", r"dong\s*mat|d\.\s*mat|(?<![a-z0-9])dm(?![a-z0-9])"),
@@ -437,6 +464,8 @@ def doc_bao_cao(text, che_doan=None):
                 ghi.append(f"{MUC[key]['ten']} cần báo theo {don_vi}")
             elif u == "thung" and key in ("c2", "ng888"):
                 gt = v * 4
+            elif key == "celano" and u in ("hop", "thung"):
+                gt = v / 4 if u == "hop" else v * 12
             elif u == "chai" and key == "c2":
                 gt = v / 6
             else:
@@ -492,7 +521,7 @@ def tinh_chot_so(ngay_str):
     kq = {"ch": ch, "co_phan_line": bool(phan_line), "fmcg": tb["fmcg"], "bang": {}, "chua_bao": [],
           "bao_vuot": [], "so_bao": 0, "so_nguoi": 0}
     ten_co_muc_tieu = set()
-    for vai_tro, ds_muc in (("thu_ngan", MUC_THU_NGAN), ("fresh", MUC_FRESH)):
+    for vai_tro, ds_muc in (("thu_ngan", ch["thu_ngan"]), ("fresh", ch["fresh"])):
         dong = []
         for n in tb[vai_tro]:
             ten_co_muc_tieu.add(n["ten"])
@@ -537,10 +566,10 @@ def _nhan_xet(kq):
     ch = kq["ch"]
     cau = []
     if ch["co_pos"]:
-        dat = [MUC[k]["ten"] for k in MUC_THU_NGAN + MUC_FRESH if (ch["muc"][k]["pct"] or 0) >= 100]
-        thieu = sorted(((ch["muc"][k]["pct"] or 0, k) for k in MUC_THU_NGAN + MUC_FRESH
+        dat = [MUC[k]["ten"] for k in ch["thu_ngan"] + ch["fresh"] if (ch["muc"][k]["pct"] or 0) >= 100]
+        thieu = sorted(((ch["muc"][k]["pct"] or 0, k) for k in ch["thu_ngan"] + ch["fresh"]
                         if (ch["muc"][k]["pct"] or 0) < 100))
-        s = f"Cửa hàng đạt {len(dat)}/{len(MUC_THU_NGAN + MUC_FRESH)} mục tiêu ngày"
+        s = f"Cửa hàng đạt {len(dat)}/{len(ch['thu_ngan'] + ch['fresh'])} mục tiêu ngày"
         if thieu:
             s += " – hụt nhiều nhất " + ", ".join(f"{MUC[k]['ten']} {pct_txt(p)}" for p, k in thieu[:2])
         cau.append(s)
