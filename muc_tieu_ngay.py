@@ -415,7 +415,9 @@ def doc_bao_cao(text, che_doan=None):
     if not kw:
         return {}, []
     kw.sort()
-    che = "".join(" " if da_che[i] else ch for i, ch in enumerate(t))
+    # (02/11/2026) che từ khoá bằng "#" (không phải dấu cách): "hmp 1tr c2 2 lốc" trước đây che "c2" thành
+    # khoảng trắng -> "1tr    2" bị đọc thành 1tr2 (1,2tr) và C2 mất số
+    che = "".join("#" if da_che[i] else ch for i, ch in enumerate(t))
     # che ngày / giờ / "ca 1" để không bị hiểu nhầm là số bán (VD "ngày 1/11", "21h30")
     che = re.sub(r"(?<![\d.,])\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?(?![\d.,])"      # ngày 1/11, 01-11-2026
                  r"|(?<![\d.,])\d{1,2}(?:h\d{0,2}|:\d{2})(?![a-z0-9])"              # 21h30, 21:30, 8h

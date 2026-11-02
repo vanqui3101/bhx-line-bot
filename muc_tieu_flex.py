@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 
 import storage
-from flex_builder import (YELLOW, RED, GRAY, GREEN, DIVIDER, PAGE_BG, BLACK,
+from flex_builder import (YELLOW, RED, GRAY, GREEN, PAGE_BG, BLACK, VIEN_O,
                           MTKM_GOLD_TEXT, MTKM_GOLD_SUB, MTKM_HL_BG, MTKM_SEC_BG)
 from muc_tieu_ngay import MUC, fmt_so, fmt_co_don_vi, ca_txt, pct_txt
 
@@ -33,7 +33,9 @@ def _mau_pct(p):
 
 def _t(text, size="sm", color=BLACK, bold=False, align="start", flex=None, wrap=True, margin=None):
     """Text gọn: chỉ ghi thuộc tính khác mặc định (thẻ LINE giới hạn dung lượng ~30KB/bubble)."""
-    o = {"type": "text", "text": str(text) if str(text).strip() else "–", "size": size, "color": color}
+    o = {"type": "text", "text": str(text) if str(text).strip() else "–", "size": size}
+    if color != BLACK:  # chữ đen là mặc định của LINE -> bỏ bớt cho nhẹ thẻ
+        o["color"] = color
     if bold:
         o["weight"] = "bold"
     if align != "start":
@@ -53,12 +55,27 @@ def _sec(title):
             "contents": [_t(title, "sm", "#FFFFFF", True)]}
 
 
-def _hang(cells, bg=None, pad="6px"):
-    o = {"type": "box", "layout": "horizontal", "paddingAll": pad, "paddingStart": "10px",
-         "paddingEnd": "10px", "contents": cells}
-    if bg:
-        o["backgroundColor"] = bg
-    return o
+def _hang(cells, bg=None, pad="5px"):
+    """(02/11/2026) Hàng bảng KẺ Ô như Excel: mỗi ô là 1 box có viền mỏng, số không dính nhau."""
+    o_list = []
+    for c in cells:
+        if c.get("type") == "box":
+            o = dict(c)
+        else:
+            c = dict(c)
+            fl = c.pop("flex", None)
+            if len(c.get("text", "")) <= 6:  # số ngắn (VD "11,28") không cần xuống dòng -> bỏ "wrap" cho nhẹ thẻ
+                c.pop("wrap", None)
+            o = {"type": "box", "layout": "vertical", "contents": [c]}
+            if fl is not None:
+                o["flex"] = fl
+        o.update({"borderWidth": "light", "borderColor": VIEN_O, "paddingAll": pad})
+        if len(o["contents"]) == 1:  # ô 1 dòng: canh giữa theo chiều dọc cho thẳng hàng với ô 2 dòng bên cạnh
+            o["justifyContent"] = "center"
+        if bg and "backgroundColor" not in o:
+            o["backgroundColor"] = bg
+        o_list.append(o)
+    return {"type": "box", "layout": "horizontal", "contents": o_list}
 
 
 def _o2(tren, duoi, flex, mau=BLACK, dam=True, align="center", size="sm"):
@@ -86,11 +103,38 @@ def _bubble(tieu_de, dong_phu, body):
     }
 
 
-def _dong_muc_tieu_cua_hang(ch):
-    m = ch["muc"]
-    d1 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in ch["thu_ngan"])
-    d2 = " · ".join(f"{MUC[k]['ten']} {fmt_co_don_vi(m[k]['mt_ngay'], MUC[k]['don_vi'])}" for k in ch["fresh"])
-    return [d1, d2]
+def _ten_muc(k):
+    dv = MUC[k]["don_vi"]
+    return MUC[k]["ten"] + ("" if dv == "tr" else f" ({dv})")
+
+
+def _o_tieu_de(dong, flex, align="center"):
+    """Ô tiêu đề cột: dòng 1 đậm, các dòng sau chữ nhỏ xám (VD tên bạn / ca / giờ báo)."""
+    noi_dung = [_t(dong[0], "xs", MTKM_GOLD_TEXT, True, align, wrap=False)]
+    noi_dung += [_t(x, "xxs", GRAY, False, align, wrap=False) for x in dong[1:] if x]
+    return {"type": "box", "layout": "vertical", "flex": flex, "contents": noi_dung}
+
+
+def _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro):
+    """(02/11/2026) Bảng kẻ ô: hàng = mục, cột = Cả cửa hàng + từng bạn (đọc dọc theo tên mình)."""
+    w_muc, w_ch, w_ng = 30, 20, 20
+    rows = [_hang([_o_tieu_de(["Mục"], w_muc, "start"), _o_tieu_de(["Cả CH", "MT ngày"], w_ch, "end")] +
+                  [_o_tieu_de([n["ten"], ca_txt(n["ca"])], w_ng) for n in nguoi], MTKM_HL_BG, "4px")]
+    for k in ds_muc:
+        dv = MUC[k]["don_vi"]
+        rows.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
+                           _t(fmt_so(ch["muc"][k]["mt_ngay"], dv), "sm", GRAY, False, "end", w_ch)] +
+                          [_t(fmt_so(n["mt"][k], dv) if n["mt"].get(k) else "–", "sm",
+                              BLACK if n["mt"].get(k) else GRAY, bool(n["mt"].get(k)), "center", w_ng)
+                           for n in nguoi], pad="4px"))
+    if vai_tro == "thu_ngan":
+        tien = [k for k in ds_muc if MUC[k]["don_vi"] == "tr"]
+        tong_ch = sum(ch["muc"][k]["mt_ngay"] or 0 for k in tien)
+        rows.append(_hang([_t("Tổng tiền", "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
+                           _t(fmt_so(tong_ch, "tr"), "sm", GRAY, True, "end", w_ch)] +
+                          [_t(fmt_so(sum(n["mt"].get(k, 0) for k in tien), "tr"), "sm", RED, True, "center", w_ng)
+                           for n in nguoi], NEN_TONG, "4px"))
+    return {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
 
 # ---------------------------------------------------------------------------
@@ -98,37 +142,12 @@ def _dong_muc_tieu_cua_hang(ch):
 # ---------------------------------------------------------------------------
 def build_the_muc_tieu(ngay_str, ch, tb):
     """ch = muc_tieu_ngay.tinh_cua_hang(ngay); tb = muc_tieu_ngay.chia_tung_ban(ch, phan_line)."""
-    body = [_sec("MỤC TIÊU NGÀY CỬA HÀNG")]
-    body.append({"type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
-                 "paddingEnd": "12px", "contents": [_t(x, "sm", MTKM_GOLD_TEXT, True, margin="xs")
-                                                    for x in _dong_muc_tieu_cua_hang(ch)]})
+    body = []
     chua_dk = []
     for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", ch["thu_ngan"]), ("fresh", "FRESH", ch["fresh"])):
-        nguoi = tb.get(vai_tro) or []
-        if not nguoi:
-            continue
-        body.append(_sec(tieu_de))
-        nguoi = sorted(nguoi, key=lambda n: (0 if n["ca"][0] == "sang" else 1, len(n["ca"])))
-        for j, n in enumerate(nguoi):
-            mt = n["mt"]
-            # liệt kê đúng các mục đang giao hôm đó (VD Celano chỉ có trong chu kỳ thi đua)
-            chi_tiet = " · ".join(f"{NHAN_THE[k]} " + (fmt_so(mt[k], "tr") if MUC[k]["don_vi"] == "tr"
-                                                       else fmt_co_don_vi(mt[k], MUC[k]["don_vi"]))
-                                  for k in ds_muc if k in mt)
-            if vai_tro == "thu_ngan":
-                phai = fmt_so(sum(mt.get(k, 0) for k in ds_muc if MUC[k]["don_vi"] == "tr"), "tr") + "tr"
-            else:
-                phai = f"Cá {fmt_so(mt.get('ca'), 'tr')}tr"
-            if j:
-                body.append({"type": "separator", "color": DIVIDER})
-            body.append({"type": "box", "layout": "vertical", "paddingAll": "7px", "paddingStart": "12px",
-                         "paddingEnd": "12px", "contents": [
-                             {"type": "box", "layout": "horizontal", "contents": [
-                                 {"type": "text", "text": n["ten"], "flex": 6, "wrap": True, "contents": [
-                                     {"type": "span", "text": n["ten"], "weight": "bold", "color": MTKM_GOLD_TEXT, "size": "md"},
-                                     {"type": "span", "text": f" · {ca_txt(n['ca'])}", "color": GRAY, "size": "xs"}]},
-                                 _t(phai, "sm", RED, True, "end", 4)]},
-                             _t(chi_tiet, "xs", "#555555", margin="xs")]})
+        nguoi = sorted(tb.get(vai_tro) or [], key=lambda n: (0 if n["ca"][0] == "sang" else 1, len(n["ca"])))
+        body += [_sec(tieu_de), _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro)]
+        for n in nguoi:
             try:
                 if not storage.get_user_id_da_dang_ky(n["ten"]) and n["ten"] not in chua_dk:
                     chua_dk.append(n["ten"])
@@ -185,62 +204,73 @@ def _bang_cua_hang(ch):
         else:
             ten_cell = _t(ten, "sm", MTKM_GOLD_TEXT, True, flex=34)
         p = m["pct"]
-        rows.append({"type": "separator", "color": DIVIDER})
         rows.append(_hang([ten_cell,
                            _t(fmt_so(m["mt_ngay"], dv), "sm", BLACK, False, "end", 22),
                            _t(fmt_so(m["pos"], dv) if m["pos"] is not None else "–", "sm", BLACK, True, "end", 22),
                            _t((pct_txt(p) + (" ✓" if p >= 100 else "")) if p is not None else "–", "sm",
                               _mau_pct(p), True, "end", 22)]))
-    return {"type": "box", "layout": "vertical", "contents": rows}
+    return {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
 
 def _bang_tung_ban(bang, ds_muc, ch):
-    tieu_de_cot = {"sk": "Sữa khô", "celano": "Celano", "dm": "Đông mát", "hmp": "HMP", "c2": "C2", "ng888": "888",
-                   "ca": "Cá", "trung": "Trứng", "heo": "Heo C.P"}
-    co = {"ten": 22, "muc": max(int(60 / len(ds_muc)), 14), "pct": 18}
-    rows = [_hang([_t("Tên", "xxs", MTKM_GOLD_TEXT, True, flex=co["ten"])] +
-                  [_t(tieu_de_cot[k], "xxs", MTKM_GOLD_TEXT, True, "center", co["muc"]) for k in ds_muc] +
-                  [_t("% đạt", "xxs", MTKM_GOLD_TEXT, True, "end", co["pct"])], MTKM_HL_BG)]
-    for d in bang["dong"]:
-        cells = [{"type": "box", "layout": "vertical", "flex": co["ten"], "contents": [
-            _t(d["ten"], "sm", MTKM_GOLD_TEXT, True, wrap=False),
-            _t(d["ca"] + (f" · {d['gio']}" if d.get("gio") else ""), "xxs", GRAY, wrap=False)]}]
-        for k in ds_muc:
-            dv = MUC[k]["don_vi"]
+    """(02/11/2026) 2 bảng kẻ ô:
+       1) hàng = mục, cột = từng bạn: số báo (to) / mục tiêu (nhỏ), màu theo % · hàng cuối = % đạt
+       2) đối chiếu POS: Các bạn báo | POS | Có tư vấn"""
+    dong = bang["dong"]
+    w_muc, w_ng = 30, 22
+    rows = [_hang([_o_tieu_de(["Mục"], w_muc, "start")] +
+                  [_o_tieu_de([d["ten"], d["ca"], (f"báo {d['gio']}" if d.get("gio") else "")], w_ng) for d in dong],
+                  MTKM_HL_BG, "4px")]
+    for k in ds_muc:
+        dv = MUC[k]["don_vi"]
+        cells = [_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
+        for d in dong:
             mt = d["mt"].get(k)
             if not d["da_bao"]:
-                cells.append(_o2("–", f"/{fmt_so(mt, dv)}" if mt else "", co["muc"], GRAY, False))
+                cells.append(_o2("–", f"/{fmt_so(mt, dv)}" if mt else "", w_ng, GRAY, False))
                 continue
             bc = d["bc"].get(k, 0)
             if not mt and not bc:
-                cells.append(_o2("–", "", co["muc"], GRAY, False))
+                cells.append(_o2("–", "", w_ng, GRAY, False))
                 continue
             p = (bc / mt * 100) if mt else None
-            cells.append(_o2(fmt_so(bc, dv), f"/{fmt_so(mt, dv)}" if mt else "", co["muc"], _mau_pct(p)))
+            cells.append(_o2(fmt_so(bc, dv), f"/{fmt_so(mt, dv)}" if mt else "", w_ng, _mau_pct(p)))
+        rows.append(_hang(cells, pad="4px"))
+    hang_pct = [_t("% đạt", "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
+    for d in dong:
         if d["da_bao"] and d["pct"] is not None:
-            cells.append(_t(pct_txt(d["pct"]), "sm", _mau_pct(d["pct"]), True, "end", co["pct"]))
+            hang_pct.append(_t(pct_txt(d["pct"]), "sm", _mau_pct(d["pct"]), True, "center", w_ng))
         else:
-            cells.append(_t("chưa báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
-                            True, "end", co["pct"]))
-        rows.append({"type": "separator", "color": DIVIDER})
-        rows.append(_hang(cells, pad="5px"))
-    # tổng các bạn báo / POS / có tư vấn
-    def _hang_tong(nhan, gia_tri, dam=False, mau=None):
-        return _hang([_t(nhan, "xs", MTKM_GOLD_TEXT, True, flex=co["ten"])] +
-                     [_t(gia_tri(k), "xs", (mau(k) if mau else BLACK), dam, "center", co["muc"]) for k in ds_muc] +
-                     [{"type": "filler", "flex": co["pct"]}], NEN_TONG, pad="5px")
+            hang_pct.append(_t("chưa báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
+                               True, "center", w_ng))
+    rows.append(_hang(hang_pct, NEN_TONG, "4px"))
+    bang1 = {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
+
     # mục chưa giao cho ai và cũng không ai báo (VD HMP trước ngày áp dụng) -> để "–" cho gọn
-    bo_trong = {k: not any(d["mt"].get(k) for d in bang["dong"]) and not bang["tong_bc"][k] for k in ds_muc}
-    rows.append({"type": "separator", "color": DIVIDER})
-    rows.append(_hang_tong("Các bạn báo", lambda k: "–" if bo_trong[k] else fmt_so(bang["tong_bc"][k], MUC[k]["don_vi"])))
-    rows.append(_hang_tong("POS", lambda k: fmt_so(ch["muc"][k]["pos"], MUC[k]["don_vi"])
-                           if ch["muc"][k]["pos"] is not None else "–", True))
-    rows.append(_hang_tong("Có tư vấn",
-                           lambda k: "–" if bo_trong[k] else (pct_txt(bang["co_tu_van"][k])
-                           if bang["co_tu_van"][k] is None or bang["co_tu_van"][k] <= 100.5 else "⚠ vượt"),
-                           True, lambda k: GRAY if bo_trong[k] else (RED if (bang["co_tu_van"][k] or 0) > 100.5
-                                                                     else _mau_pct(bang["co_tu_van"][k]))))
-    return {"type": "box", "layout": "vertical", "contents": rows}
+    bo_trong = {k: not any(d["mt"].get(k) for d in dong) and not bang["tong_bc"][k] for k in ds_muc}
+    w2 = (30, 23, 23, 24)
+    rows2 = [_hang([_o_tieu_de(["Đối chiếu"], w2[0], "start"), _o_tieu_de(["Các bạn", "báo"], w2[1], "end"),
+                    _o_tieu_de(["POS"], w2[2], "end"), _o_tieu_de(["Có tư vấn", "báo/POS"], w2[3], "end")],
+                   MTKM_HL_BG, "4px")]
+    for k in ds_muc:
+        dv = MUC[k]["don_vi"]
+        pos = ch["muc"][k]["pos"]
+        ctv = bang["co_tu_van"][k]
+        if bo_trong[k]:
+            bao_txt, ctv_txt, ctv_mau = "–", "–", GRAY
+        else:
+            bao_txt = fmt_so(bang["tong_bc"][k], dv)
+            if ctv is not None and ctv > 100.5:
+                ctv_txt, ctv_mau = "⚠ vượt POS", RED
+            else:
+                ctv_txt, ctv_mau = pct_txt(ctv), _mau_pct(ctv)
+        rows2.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w2[0]),
+                            _t(bao_txt, "sm", BLACK, False, "end", w2[1]),
+                            _t(fmt_so(pos, dv) if pos is not None else "–", "sm", BLACK, True, "end", w2[2]),
+                            _t(ctv_txt, "sm", ctv_mau, True, "end", w2[3])], pad="4px"))
+    bang2 = {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px",
+             "paddingTop": "8px", "contents": rows2}
+    return [bang1, bang2]
 
 
 def build_the_chot_so(ngay_str, kq):
@@ -252,12 +282,13 @@ def build_the_chot_so(ngay_str, kq):
     if mai:
         dau.append(_hop_canh_bao(["MT ngày mai (đã dồn phần thiếu/dư): " + " · ".join(mai)], NEN_XANH, CHU_XANH))
     # Phần 2: từng bạn
-    tung_ban = []
-    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "TỪNG BẠN · THU NGÂN", ch["thu_ngan"]),
-                                    ("fresh", "TỪNG BẠN · FRESH", ch["fresh"])):
+    phan_vai_tro = []  # [(tên vai trò, [khối])]
+    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", ch["thu_ngan"]),
+                                    ("fresh", "FRESH", ch["fresh"])):
         bang = kq["bang"].get(vai_tro)
         if bang and bang["dong"]:
-            tung_ban += [_sec(tieu_de), _bang_tung_ban(bang, ds_muc, ch)]
+            phan_vai_tro.append((tieu_de, [_sec("TỪNG BẠN · " + tieu_de)] + _bang_tung_ban(bang, ds_muc, ch)))
+    tung_ban = [x for _, khoi in phan_vai_tro for x in khoi]
     # Phần 3: cảnh báo + nhận xét + chú thích
     canh_bao = []
     for b in kq["bao_vuot"]:
@@ -289,7 +320,16 @@ def build_the_chot_so(ngay_str, kq):
     dong_phu = [f"Ngày {ch['ngay_thu']}/{ch['so_ngay']} · {kq['so_bao']}/{kq['so_nguoi']} bạn đã báo · đơn vị: triệu"]
     bubble = _bubble(tieu_de, dong_phu, dau + tung_ban + cuoi)
     # LINE giới hạn ~30KB/bubble: đông người quá thì tách phần TỪNG BẠN sang thẻ thứ 2 (vuốt ngang)
-    if tung_ban and len(json.dumps(bubble, ensure_ascii=False, separators=(",", ":")).encode()) > 27000:
-        return {"type": "carousel", "contents": [_bubble(tieu_de, dong_phu, dau + cuoi),
-                                                 _bubble("TỪNG BẠN · " + _ngay_hien(ngay_str), dong_phu, tung_ban)]}
-    return bubble
+    if not tung_ban or _kb(bubble) <= 27000:
+        return bubble
+    ds = [_bubble(tieu_de, dong_phu, dau + cuoi)]
+    gop = _bubble("TỪNG BẠN · " + _ngay_hien(ngay_str), dong_phu, tung_ban)
+    if _kb(gop) <= 27000:
+        ds.append(gop)
+    else:  # đông người: mỗi vai trò 1 thẻ riêng (vuốt ngang)
+        ds += [_bubble(f"{ten} · {_ngay_hien(ngay_str)}", dong_phu, khoi) for ten, khoi in phan_vai_tro]
+    return {"type": "carousel", "contents": ds}
+
+
+def _kb(o):
+    return len(json.dumps(o, ensure_ascii=False, separators=(",", ":")).encode())

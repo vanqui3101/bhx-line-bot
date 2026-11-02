@@ -1446,9 +1446,18 @@ def handle_text_message(event):
                                 "Tháng này chưa cài mục tiêu ngày nên chưa chốt số được anh ạ.")
                     return
                 bubble = muc_tieu_flex.build_the_chot_so(ngay_chot, kq_chot)
-                send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
-                    alt_text=f"Chốt số {ngay_chot[8:]}/{ngay_chot[5:7]}",
-                    contents=FlexContainer.from_dict(bubble)))
+                alt = f"Chốt số {ngay_chot[8:]}/{ngay_chot[5:7]}"
+                # (02/11/2026) Đông người -> thẻ nặng: LINE giới hạn ~50KB/1 tin carousel, nên tách
+                # thẻ cửa hàng và thẻ từng bạn thành 2 tin (vẫn chung 1 lần trả lời, miễn phí)
+                if bubble.get("type") == "carousel" and len(bubble["contents"]) > 1 and \
+                        len(json.dumps(bubble, ensure_ascii=False, separators=(",", ":")).encode()) > 45000:
+                    phan_sau = bubble["contents"][1:]
+                    the_sau = phan_sau[0] if len(phan_sau) == 1 else {"type": "carousel", "contents": phan_sau}
+                    tin = [FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(bubble["contents"][0])),
+                           FlexMessage(alt_text=alt + " · từng bạn", contents=FlexContainer.from_dict(the_sau))]
+                else:
+                    tin = FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(bubble))
+                send_card_with_ack(messaging_api, event.reply_token, target_id, tin)
             except Exception as e:
                 traceback.print_exc()
                 try:
@@ -1883,18 +1892,20 @@ def send_card_with_ack(messaging_api, reply_token, target_id, flex_message):
     """Gửi câu xác nhận + thẻ báo cáo trong CÙNG 1 reply (miễn phí). Trước đây
     thẻ gửi bằng push nên khi LINE OA hết hạn mức tin nhắn tháng (HTTP 429
     "You have reached your monthly limit") bot chỉ trả lời được câu xác nhận
-    mà không có thẻ. Nếu reply lỗi thì mới thử push như cũ."""
+    mà không có thẻ. Nếu reply lỗi thì mới thử push như cũ.
+    flex_message có thể là 1 thẻ hoặc danh sách thẻ (tối đa 4, vì 1 reply được 5 tin)."""
+    the = flex_message if isinstance(flex_message, list) else [flex_message]
     try:
         messaging_api.reply_message(
             ReplyMessageRequest(
                 reply_token=reply_token,
-                messages=[TextMessage(text="Em gửi Anh và Team 8363 luôn ạ"), flex_message],
+                messages=[TextMessage(text="Em gửi Anh và Team 8363 luôn ạ")] + the[:4],
             )
         )
     except Exception:
         traceback.print_exc()
         messaging_api.push_message(
-            PushMessageRequest(to=target_id, messages=[flex_message])
+            PushMessageRequest(to=target_id, messages=the[:5])
         )
 def reply_text(messaging_api, reply_token, text):
     text = text[:4900]

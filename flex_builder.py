@@ -466,6 +466,7 @@ def _mtkm_khoi(icon_title, sub_title, so, fmt, don_vi_con_lai, ghi_chu=None):
 # kiểu cột: Ngành | Mục tiêu | DT hiện tại | % đạt. Số liệu tính sẵn ở
 # mtkm_tracker.tinh_mtkm(); hàm dưới đây CHỈ vẽ thẻ. Đơn vị: triệu đồng.
 MTKM_SEC_BG = "#BA7517"
+VIEN_O = "#CFCFCF"  # (02/11/2026) màu viền ô bảng kẻ ô
 MTKM_TONG_BG = "#FFF8EC"
 
 
@@ -544,42 +545,50 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
     tien_do = kq.get("pct_tien_do", 0)
     body = []
     if dong:
-        rows = [{
-            "type": "box", "layout": "horizontal", "backgroundColor": MTKM_HL_BG,
-            "paddingAll": "6px", "paddingStart": "12px", "paddingEnd": "12px",
-            "contents": [_mtkm_o("Nhóm hàng", 34, "start", MTKM_GOLD_TEXT, True, "xxs"),
-                         _mtkm_o("MT ngày", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
-                         _mtkm_o("Hôm nay", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
-                         _mtkm_o("% ngày", 15, color=MTKM_GOLD_TEXT, bold=True, size="xxs"),
-                         _mtkm_o("% tháng", 17, color=MTKM_GOLD_TEXT, bold=True, size="xxs")],
-        }]
-        for i, d in enumerate(dong):
+        # (02/11/2026) Bảng KẺ Ô như Excel cho dễ nhìn: mỗi ô có viền, số không dính nhau
+        cot = (32, 15, 16, 18, 19)
+
+        def _o(noi_dung, flex, align="end", color=BLACK, bold=False, size="sm", bg=None):
+            if isinstance(noi_dung, str):
+                noi_dung = [{"type": "text", "text": noi_dung, "size": size, "align": align, "color": color,
+                             "weight": "bold" if bold else "regular", "wrap": True}]
+            o = {"type": "box", "layout": "vertical", "flex": flex, "justifyContent": "center",
+                 "borderWidth": "light", "borderColor": VIEN_O, "paddingAll": "5px", "contents": noi_dung}
+            if bg:
+                o["backgroundColor"] = bg
+            return o
+
+        def _hang_o(cells):
+            return {"type": "box", "layout": "horizontal", "contents": cells}
+
+        rows = [_hang_o([_o("Nhóm hàng", cot[0], "start", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG),
+                         _o("MT ngày", cot[1], "center", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG),
+                         _o("Hôm nay", cot[2], "center", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG),
+                         _o("% ngày", cot[3], "center", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG),
+                         _o("% tháng", cot[4], "center", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG)])]
+        da_ghi_nhom_dem = False
+        for d in dong:
+            if d["don_vi"] in ("loc", "tui") and not da_ghi_nhom_dem:
+                da_ghi_nhom_dem = True
+                rows.append(_hang_o([_o("ĐẾM SỐ LƯỢNG (lốc / túi)", 100, "start", "#FFFFFF", True, "xxs", MTKM_SEC_BG)]))
             dat_ngay = d["pct_ngay"] >= 100
             dat_thang = d["pct_thang"] >= (d["tien_do_rieng"] if d.get("tien_do_rieng") is not None else tien_do)
-            ten_cells = [_mtkm_o(d["ten"], 34, "start", MTKM_GOLD_TEXT, True)]
+            bg = "#FFF8EC" if d["la_tong"] else None
+            ten = [{"type": "text", "text": d["ten"], "size": "sm", "weight": "bold", "color": MTKM_GOLD_TEXT, "wrap": True}]
             if d.get("nhan_gd"):
-                ten_cells = [{"type": "box", "layout": "vertical", "flex": 34, "contents": [
-                    {"type": "text", "text": d["ten"], "size": "sm", "weight": "bold", "color": MTKM_GOLD_TEXT, "wrap": True},
-                    {"type": "text", "text": d["nhan_gd"], "size": "xxs", "color": GRAY, "wrap": True}]}]
-            row = {
-                "type": "box", "layout": "horizontal", "paddingAll": "6px",
-                "paddingStart": "12px", "paddingEnd": "12px",
-                "contents": ten_cells + [
-                    _mtkm_o(_mtkm_so(d["mt_ngay"], d["don_vi"]), 17, bold=d["la_tong"]),
-                    _mtkm_o(_mtkm_so(d["hom_nay"], d["don_vi"]), 17, bold=d["la_tong"]),
-                    _mtkm_o(f"{(math.floor(d['pct_ngay']) if d['pct_ngay'] < 100 else round(d['pct_ngay'])):.0f}%"
-                            + (" ✓" if dat_ngay else ""), 15,
-                            color=GREEN if dat_ngay else RED, bold=True),
-                    _mtkm_o(f"{d['pct_thang']:.1f}%".replace(".", ",") + (" ✓" if dat_thang else ""), 17,
-                            color=GREEN if dat_thang else RED, bold=True),
-                ],
-            }
-            if d["la_tong"]:
-                row["backgroundColor"] = "#FFF8EC"
-            if i:
-                rows.append({"type": "separator", "color": DIVIDER})
-            rows.append(row)
-        body.append({"type": "box", "layout": "vertical", "contents": rows})
+                ten.append({"type": "text", "text": d["nhan_gd"], "size": "xxs", "color": GRAY, "wrap": True})
+            pct_ngay = math.floor(d["pct_ngay"]) if d["pct_ngay"] < 100 else round(d["pct_ngay"])
+            rows.append(_hang_o([
+                _o(ten, cot[0], bg=bg),
+                _o(_mtkm_so(d["mt_ngay"], d["don_vi"]), cot[1], bold=d["la_tong"], bg=bg),
+                _o(_mtkm_so(d["hom_nay"], d["don_vi"]), cot[2], bold=True, bg=bg),
+                _o(f"{pct_ngay:.0f}%" + (" ✓" if dat_ngay else ""), cot[3], color=GREEN if dat_ngay else RED,
+                   bold=True, bg=bg),
+                _o(f"{d['pct_thang']:.1f}%".replace(".", ",") + (" ✓" if dat_thang else ""), cot[4],
+                   color=GREEN if dat_thang else RED, bold=True, bg=bg),
+            ]))
+        body.append({"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px",
+                     "paddingTop": "8px", "contents": rows})
 
         # ---- MỤC TIÊU TỪNG BẠN ----
         tung_ban = kq.get("tung_ban") or []

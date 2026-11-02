@@ -70,7 +70,7 @@ MUC_TIEU_THANG = {
              "chi_trong_giai_doan": True,
              "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"}]},
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
-            {"key": "ng888", "ten": "Nước giặt 888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
+            {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
              "muc_tieu": 200, "cho": "thu_ngan"},
         ],
     },
