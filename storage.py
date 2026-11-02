@@ -733,3 +733,47 @@ def get_bao_cao_ban_hang(ngay):
     rows = cur.fetchall()
     conn.close()
     return {ten: {"items": json.loads(dj), "gio": gio} for ten, dj, gio in rows}
+# (02/11/2026) Báo cáo của tài khoản CHƯA đăng ký tên: giữ tạm theo user_id, khi bạn đó gõ
+# "DK <tên>" thì tự ghi vào báo cáo của bạn đó (không phải nhắn lại số).
+def _connect_baocao_cho():
+    conn = _connect()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bao_cao_cho_dk (
+            user_id TEXT NOT NULL,
+            ngay TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            gio TEXT,
+            PRIMARY KEY (user_id, ngay)
+        )
+    """)
+    return conn
+def save_bao_cao_cho_dk(user_id, ngay, items, gio=None):
+    conn = _connect_baocao_cho()
+    cur = conn.execute("SELECT data_json FROM bao_cao_cho_dk WHERE user_id = ? AND ngay = ?", (user_id, ngay))
+    row = cur.fetchone()
+    cu = json.loads(row[0]) if row else {}
+    cu.update(items)
+    with conn:
+        conn.execute("""
+            INSERT INTO bao_cao_cho_dk (user_id, ngay, data_json, gio) VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, ngay) DO UPDATE SET data_json=excluded.data_json, gio=excluded.gio
+        """, (user_id, ngay, json.dumps(cu, ensure_ascii=False), gio))
+    conn.close()
+def lay_va_xoa_bao_cao_cho_dk(user_id, ngay):
+    """Trả về (items, gio) đang chờ của user_id trong ngày (rồi xoá), hoặc (None, None)."""
+    conn = _connect_baocao_cho()
+    cur = conn.execute("SELECT data_json, gio FROM bao_cao_cho_dk WHERE user_id = ? AND ngay = ?", (user_id, ngay))
+    row = cur.fetchone()
+    if row:
+        with conn:
+            conn.execute("DELETE FROM bao_cao_cho_dk WHERE user_id = ? AND ngay = ?", (user_id, ngay))
+    conn.close()
+    return (json.loads(row[0]), row[1]) if row else (None, None)
+def xoa_bao_cao_ban_hang(ngay, ten):
+    """(02/11/2026) Xoá báo cáo bán hàng của 1 bạn trong 1 ngày (anh Quí gõ "XÓA BC <tên> <ngày>")."""
+    conn = _connect_baocao()
+    with conn:
+        cur = conn.execute("DELETE FROM bao_cao_ban_hang WHERE ngay = ? AND ten = ?", (ngay, ten))
+    n = cur.rowcount
+    conn.close()
+    return n > 0

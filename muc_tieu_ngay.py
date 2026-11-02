@@ -212,6 +212,7 @@ def tinh_cua_hang(ngay_str):
         muc[key] = {"mt_ngay": mt, "pos": pos, "mt_mai": mt_mai,
                     "pct": (pos / mt * 100) if (pos is not None and mt) else None}
     muc["trung"]["tien"] = _tien_trung(p_hom_nay)
+    muc["heo"]["da_mo"] = (p_hom_nay or {}).get("heo_cp_damo_kg")
     return {"ngay": ngay_str, "ngay_thu": ngay.day, "so_ngay": cuoi_thang.day,
             "co_pos": p_hom_nay is not None,
             "ngay_thieu": [datetime.strptime(x, "%Y-%m-%d").strftime("%d/%m") for x in sorted(thieu)],
@@ -428,14 +429,19 @@ def doc_bao_cao(text, che_doan=None):
     return items, ghi
 
 
+_MUC_TIEU_RE = re.compile(r"m[ụu]c\s*ti[êe]u|ch[ỉi]\s*ti[êe]u|(?<!\w)nhận\s*(?:mt|line|ca)(?!\w)")
+
+
 def la_tin_bao_cao(text, items=None, co_tag=False):
-    """Coi là báo cáo bán hàng khi: có chữ bán / BC / báo cáo, HOẶC có tag (các bạn hay tag anh Quí),
-    HOẶC đọc ra từ 2 mục có số trở lên — tránh nhầm tin trò chuyện kiểu "sk còn 2 thùng"."""
+    """(02/11/2026) Chỉ coi là BÁO CÁO BÁN HÀNG khi tin có chữ "bán" / "BC" / "báo cáo" và có số các mục.
+    Tin nhắc lại MỤC TIÊU (có chữ "mục tiêu", "chỉ tiêu"...) thì KHÔNG tính — tránh ghi nhầm mục tiêu
+    thành số bán như trường hợp Thi ngày 01/11. (co_tag giữ cho tương thích, không còn dùng.)"""
     if not items:
         return False
-    if _TU_BAO_CAO.search(unicodedata.normalize("NFC", text or "").lower()) or co_tag:
-        return True
-    return len(items) >= 2
+    t = unicodedata.normalize("NFC", text or "").lower()
+    if _MUC_TIEU_RE.search(t):
+        return False
+    return bool(_TU_BAO_CAO.search(t))
 
 
 def tom_tat_bao_cao(ten, items, ghi=None):
@@ -477,7 +483,7 @@ def tinh_chot_so(ngay_str):
             bc_vt = {k: bc[k] for k in ds_muc if k in bc}
             pcts = [p for p in (_pct(bc_vt.get(k, 0), n["mt"].get(k)) for k in ds_muc) if p is not None]
             dong.append({"ten": n["ten"], "ca": ca_txt(n["ca"]), "mt": n["mt"], "bc": bc_vt,
-                         "da_bao": n["ten"] in bao_cao,
+                         "da_bao": n["ten"] in bao_cao, "gio": (bao_cao.get(n["ten"]) or {}).get("gio"),
                          "pct": sum(pcts) / len(pcts) if pcts and n["ten"] in bao_cao else None})
         # bạn không có trong phân line vai trò này nhưng có báo mục của vai trò này
         for ten, v in bao_cao.items():
@@ -485,7 +491,8 @@ def tinh_chot_so(ngay_str):
                 continue
             bc_vt = {k: v["items"][k] for k in ds_muc if k in (v.get("items") or {})}
             if bc_vt:
-                dong.append({"ten": ten, "ca": "ngoài phân line", "mt": {}, "bc": bc_vt, "da_bao": True, "pct": None})
+                dong.append({"ten": ten, "ca": "ngoài line", "mt": {}, "bc": bc_vt, "da_bao": True, "pct": None,
+                             "gio": v.get("gio")})
         dong.sort(key=lambda d: (d["pct"] is None, -(d["pct"] or 0)))
         tong_bc = {k: sum((d["bc"].get(k) or 0) for d in dong) for k in ds_muc}
         co_tu_van = {}

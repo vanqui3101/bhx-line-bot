@@ -167,9 +167,14 @@ def _bang_cua_hang(ch):
         m = ch["muc"][k]
         dv = MUC[k]["don_vi"]
         ten = MUC[k]["ten"] + ("" if dv == "tr" else f" ({dv})")
+        phu = None
         if k == "trung" and m.get("tien") is not None:
+            phu = f"tiền trứng {fmt_so(m['tien'], 'tr')}tr"
+        elif k == "heo" and m.get("da_mo"):
+            phu = f"trong đó da mỡ {fmt_so(m['da_mo'], 'kg')}kg"
+        if phu:
             ten_cell = {"type": "box", "layout": "vertical", "flex": 34, "contents": [
-                _t(ten, "sm", MTKM_GOLD_TEXT, True), _t(f"tiền trứng {fmt_so(m['tien'], 'tr')}tr", "xxs", GRAY)]}
+                _t(ten, "sm", MTKM_GOLD_TEXT, True), _t(phu, "xxs", GRAY)]}
         else:
             ten_cell = _t(ten, "sm", MTKM_GOLD_TEXT, True, flex=34)
         p = m["pct"]
@@ -191,7 +196,8 @@ def _bang_tung_ban(bang, ds_muc, ch):
                   [_t("% đạt", "xxs", MTKM_GOLD_TEXT, True, "end", co["pct"])], MTKM_HL_BG)]
     for d in bang["dong"]:
         cells = [{"type": "box", "layout": "vertical", "flex": co["ten"], "contents": [
-            _t(d["ten"], "sm", MTKM_GOLD_TEXT, True, wrap=False), _t(d["ca"], "xxs", GRAY, wrap=False)]}]
+            _t(d["ten"], "sm", MTKM_GOLD_TEXT, True, wrap=False),
+            _t(d["ca"] + (f" · {d['gio']}" if d.get("gio") else ""), "xxs", GRAY, wrap=False)]}]
         for k in ds_muc:
             dv = MUC[k]["don_vi"]
             mt = d["mt"].get(k)

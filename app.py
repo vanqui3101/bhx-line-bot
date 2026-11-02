@@ -14,6 +14,7 @@ Luồng hoạt động (MỚI):
    - Đăng bài PHÂN LINE (nhóm hoặc chat riêng) -> thẻ MỤC TIÊU NGÀY TỪNG BẠN (01/11/2026)
    - Các bạn nhắn số bán cuối ngày (tự do)   -> bot ghi nhận, nhắc lại số đã hiểu
    - "CHỐT SỐ" (hoặc "chốt số 01/11")        -> thẻ chốt số cuối ngày: mục tiêu ngày cửa hàng + từng bạn
+   - "BC <tên> [dd/mm]: <số>" / "XÓA BC <tên> [dd/mm]" -> anh nhập hộ / xoá báo cáo của 1 bạn
 CẤU HÌNH (Environment Variables):
 - LINE_CHANNEL_ACCESS_TOKEN  (bắt buộc)
 - LINE_CHANNEL_SECRET        (bắt buộc)
@@ -1394,7 +1395,17 @@ def handle_text_message(event):
                 user_id = getattr(event.source, "user_id", None)
                 if user_id:
                     storage.dang_ky_thanh_vien(ten_chuan, user_id)
-                    reply_text(messaging_api, event.reply_token, f"Đã ghi nhận {ten_chuan}, cảm ơn bạn!")
+                    tra_loi = f"Đã ghi nhận {ten_chuan}, cảm ơn bạn!"
+                    # (02/11/2026) Có báo cáo gửi lúc chưa đăng ký -> ghi luôn, không phải nhắn lại
+                    try:
+                        cho_items, cho_gio = storage.lay_va_xoa_bao_cao_cho_dk(user_id, _ngay_hien_tai_str())
+                        if cho_items:
+                            storage.save_bao_cao_ban_hang(_ngay_hien_tai_str(), ten_chuan, cho_items, cho_gio)
+                            tra_loi += ("\nEm ghi luôn số bạn báo lúc " + (cho_gio or "nãy") + ":\n"
+                                        + muc_tieu_ngay.tom_tat_bao_cao(ten_chuan, cho_items))
+                    except Exception:
+                        traceback.print_exc()
+                    reply_text(messaging_api, event.reply_token, tra_loi)
                 else:
                     reply_text(messaging_api, event.reply_token, "Không lấy được ID của bạn, thử lại giúp em nhé.")
             else:
@@ -1432,6 +1443,40 @@ def handle_text_message(event):
                 except Exception:
                     traceback.print_exc()
             return
+        # (02/11/2026) Anh sửa số báo cáo:
+        #   "XÓA BC <tên> [dd/mm]"           -> xoá báo cáo của bạn đó (VD ghi nhầm)
+        #   "BC <tên> [dd/mm]: <số bán>"      -> nhập hộ / sửa hộ số của bạn đó (VD "BC Tiền 01/11: c2 8 lốc, sk 1tr7")
+        _m_xoa = re.match(r"^\s*xoa\s*(?:bc|bao\s*cao)\s+([a-z]+)(?:\s+(\d{1,2})\s*/\s*(\d{1,2}))?\s*$", text_kd)
+        _m_ho = re.match(r"^\s*(?:bc|báo cáo|bao cao)\s+([^\s:/\d]+)\s*(?:(\d{1,2})\s*/\s*(\d{1,2}))?\s*:\s*(.+)$",
+                         unicodedata.normalize("NFC", text).lower(), re.S)
+        for _m_lenh in (_m_xoa, _m_ho):
+            if not _m_lenh:
+                continue
+            _ten_lenh = muc_tieu_ngay.nhan_ten(_m_lenh.group(1))
+            if not _ten_lenh:
+                continue
+            _ngay_lenh = _ngay_hien_tai_str()
+            if _m_lenh.group(2):
+                _ngay_lenh = f"{_now_vn_datetime().year}-{int(_m_lenh.group(3)):02d}-{int(_m_lenh.group(2)):02d}"
+            _nhan_ngay = f"{_ngay_lenh[8:]}/{_ngay_lenh[5:7]}"
+            try:
+                if _m_lenh is _m_xoa:
+                    _ok = storage.xoa_bao_cao_ban_hang(_ngay_lenh, _ten_lenh)
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                f"Đã xoá báo cáo của {_ten_lenh} ngày {_nhan_ngay}." if _ok
+                                else f"Ngày {_nhan_ngay} chưa có báo cáo nào của {_ten_lenh}.")
+                else:
+                    _it, _gh = muc_tieu_ngay.doc_bao_cao(_m_lenh.group(4))
+                    if not _it:
+                        notify_text(messaging_api, event.reply_token, target_id,
+                                    "Em chưa đọc được số nào, anh ghi lại giúp em (VD: BC Tiền 01/11: c2 8 lốc, sk 1tr7)")
+                    else:
+                        storage.save_bao_cao_ban_hang(_ngay_lenh, _ten_lenh, _it, "nhập hộ " + _now_vn_time_str())
+                        notify_text(messaging_api, event.reply_token, target_id,
+                                    f"(Nhập hộ {_nhan_ngay}) " + muc_tieu_ngay.tom_tat_bao_cao(_ten_lenh, _it, _gh))
+            except Exception:
+                traceback.print_exc()
+            return
         # (01/11/2026) BÁO CÁO BÁN HÀNG CUỐI NGÀY của các bạn — nhắn tự do trong nhóm
         # (VD "Nay em bán trứng đc 8 vỉ Đm 1079 skho 1504 c2 6 lốc tt anh @Quí").
         # Bot đọc số, lưu theo tên đã đăng ký, trả 1 dòng nhắc lại số đã hiểu.
@@ -1452,14 +1497,16 @@ def handle_text_message(event):
                     _ten = storage.get_ten_ngan_tu_user_id(_uid) if _uid else None
                     if _ten:
                         storage.save_bao_cao_ban_hang(_ngay_hien_tai_str(), _ten, _items, _now_vn_time_str())
-                        reply_text(messaging_api, event.reply_token,
-                                   muc_tieu_ngay.tom_tat_bao_cao(_ten, _items, _ghi))
+                        # reply lỗi (VD bot vừa khởi động lại, tin đến trễ) thì gửi bằng push để bạn vẫn thấy
+                        notify_text(messaging_api, event.reply_token, target_id,
+                                    muc_tieu_ngay.tom_tat_bao_cao(_ten, _items, _ghi))
                         return
-                    if muc_tieu_ngay._TU_BAO_CAO.search(unicodedata.normalize("NFC", text).lower()):
-                        reply_text(messaging_api, event.reply_token,
-                                   "Em chưa biết tài khoản này là bạn nào nên chưa ghi số được. "
-                                   "Bạn gõ \"DK <tên>\" 1 lần (VD: DK Tiền) rồi nhắn lại số giúp em nhé.")
-                        return
+                    if _uid:
+                        storage.save_bao_cao_cho_dk(_uid, _ngay_hien_tai_str(), _items, _now_vn_time_str())
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                "Em đã giữ số bạn báo nhưng chưa biết tài khoản này là bạn nào. "
+                                "Bạn gõ \"DK <tên>\" 1 lần (VD: DK Tiền) là em tự ghi vào báo cáo của bạn, không cần nhắn lại số.")
+                    return
             except Exception:
                 traceback.print_exc()
         # Lệnh "kiểm tra drive" (16/09/2026, ĐƠN GIẢN HOÁ THEO YÊU CẦU ANH QUÍ) —

@@ -195,6 +195,7 @@ def _empty_day_acc():
         "heo_cp_kg": 0.0,
         "c2_loc": 0.0,
         "trung_vi": 0.0,
+        "heo_cp_damo_kg": 0.0,
     }
 
 
@@ -243,6 +244,7 @@ def _finish_day_payload(ngay_str, acc):
         # TRỨNG quy ra VỈ (mỗi hộp/vỉ loại nào cũng = 1 vỉ, combo 2 hộp = 2 vỉ)
         "c2_loc": acc["c2_loc"],
         "trung_vi": acc["trung_vi"],
+        "heo_cp_damo_kg": acc["heo_cp_damo_kg"],
     }
 
 
@@ -348,10 +350,13 @@ def read_category_rows_by_date(input_path):
         if nhom_hang == "Thịt Heo Các Loại" and "C.P" in ten_sp_upper:
             don_vi_up = str(cell("don_vi") or "").strip().upper()
             if don_vi_up == "KG":
-                acc["heo_cp_kg"] += sl_thuc_xuat
+                kg_dong = sl_thuc_xuat
             else:
                 m_g = re.search(r"(\d+)\s*G", ten_sp_upper)
-                acc["heo_cp_kg"] += sl_thuc_xuat * (int(m_g.group(1)) / 1000 if m_g else 1)
+                kg_dong = sl_thuc_xuat * (int(m_g.group(1)) / 1000 if m_g else 1)
+            acc["heo_cp_kg"] += kg_dong
+            if "DA" in ten_sp_upper and "MỠ" in ten_sp_upper:
+                acc["heo_cp_damo_kg"] += kg_dong
     wb.close()
 
     return {ngay: _finish_day_payload(ngay, acc) for ngay, acc in theo_ngay.items()}
