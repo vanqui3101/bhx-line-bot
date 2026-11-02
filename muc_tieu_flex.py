@@ -10,7 +10,7 @@ from datetime import datetime
 import storage
 from flex_builder import (YELLOW, RED, GRAY, GREEN, DIVIDER, PAGE_BG, BLACK,
                           MTKM_GOLD_TEXT, MTKM_GOLD_SUB, MTKM_HL_BG, MTKM_SEC_BG)
-from muc_tieu_ngay import MUC, MUC_THU_NGAN, MUC_FRESH, fmt_so, fmt_co_don_vi, ca_txt
+from muc_tieu_ngay import MUC, MUC_THU_NGAN, MUC_FRESH, fmt_so, fmt_co_don_vi, ca_txt, pct_txt
 
 VANG = "#C27C0E"
 NEN_TONG = "#FFF8EC"
@@ -183,7 +183,7 @@ def _bang_cua_hang(ch):
         rows.append(_hang([ten_cell,
                            _t(fmt_so(m["mt_ngay"], dv), "sm", BLACK, False, "end", 22),
                            _t(fmt_so(m["pos"], dv) if m["pos"] is not None else "–", "sm", BLACK, True, "end", 22),
-                           _t((f"{p:.0f}%" + (" ✓" if p >= 100 else "")) if p is not None else "–", "sm",
+                           _t((pct_txt(p) + (" ✓" if p >= 100 else "")) if p is not None else "–", "sm",
                               _mau_pct(p), True, "end", 22)]))
     return {"type": "box", "layout": "vertical", "contents": rows}
 
@@ -206,10 +206,13 @@ def _bang_tung_ban(bang, ds_muc, ch):
                 cells.append(_o2("–", f"/{fmt_so(mt, dv)}" if mt else "", co["muc"], GRAY, False))
                 continue
             bc = d["bc"].get(k, 0)
+            if not mt and not bc:
+                cells.append(_o2("–", "", co["muc"], GRAY, False))
+                continue
             p = (bc / mt * 100) if mt else None
             cells.append(_o2(fmt_so(bc, dv), f"/{fmt_so(mt, dv)}" if mt else "", co["muc"], _mau_pct(p)))
         if d["da_bao"] and d["pct"] is not None:
-            cells.append(_t(f"{d['pct']:.0f}%", "sm", _mau_pct(d["pct"]), True, "end", co["pct"]))
+            cells.append(_t(pct_txt(d["pct"]), "sm", _mau_pct(d["pct"]), True, "end", co["pct"]))
         else:
             cells.append(_t("chưa báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
                             True, "end", co["pct"]))
@@ -220,14 +223,17 @@ def _bang_tung_ban(bang, ds_muc, ch):
         return _hang([_t(nhan, "xs", MTKM_GOLD_TEXT, True, flex=co["ten"])] +
                      [_t(gia_tri(k), "xs", (mau(k) if mau else BLACK), dam, "center", co["muc"]) for k in ds_muc] +
                      [{"type": "filler", "flex": co["pct"]}], NEN_TONG, pad="5px")
+    # mục chưa giao cho ai và cũng không ai báo (VD HMP trước ngày áp dụng) -> để "–" cho gọn
+    bo_trong = {k: not any(d["mt"].get(k) for d in bang["dong"]) and not bang["tong_bc"][k] for k in ds_muc}
     rows.append({"type": "separator", "color": DIVIDER})
-    rows.append(_hang_tong("Các bạn báo", lambda k: fmt_so(bang["tong_bc"][k], MUC[k]["don_vi"])))
+    rows.append(_hang_tong("Các bạn báo", lambda k: "–" if bo_trong[k] else fmt_so(bang["tong_bc"][k], MUC[k]["don_vi"])))
     rows.append(_hang_tong("POS", lambda k: fmt_so(ch["muc"][k]["pos"], MUC[k]["don_vi"])
                            if ch["muc"][k]["pos"] is not None else "–", True))
     rows.append(_hang_tong("Có tư vấn",
-                           lambda k: (f"{bang['co_tu_van'][k]:.0f}%" if bang["co_tu_van"][k] is not None else "–")
-                           if bang["co_tu_van"][k] is None or bang["co_tu_van"][k] <= 100.5 else "⚠ vượt",
-                           True, lambda k: RED if (bang["co_tu_van"][k] or 0) > 100.5 else _mau_pct(bang["co_tu_van"][k])))
+                           lambda k: "–" if bo_trong[k] else (pct_txt(bang["co_tu_van"][k])
+                           if bang["co_tu_van"][k] is None or bang["co_tu_van"][k] <= 100.5 else "⚠ vượt"),
+                           True, lambda k: GRAY if bo_trong[k] else (RED if (bang["co_tu_van"][k] or 0) > 100.5
+                                                                     else _mau_pct(bang["co_tu_van"][k]))))
     return {"type": "box", "layout": "vertical", "contents": rows}
 
 

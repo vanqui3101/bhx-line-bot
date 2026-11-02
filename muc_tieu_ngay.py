@@ -69,7 +69,7 @@ NHAN_NGAN = {"sk": "sữa khô", "dm": "đông mát", "hmp": "hóa mỹ phẩm",
 MUC_TIEU_THANG = {
     "2026-11": {
         "sk": {"muc_tieu": 231_864_000},
-        "hmp": {"muc_tieu": 280_100_000},   # (02/11/2026) base T10 243,56tr x 115%
+        "hmp": {"muc_tieu": 280_100_000, "giao_tu": "2026-11-02"},   # base T10 243,56tr x 115%; chia từng bạn từ 02/11
         "dm": {"muc_tieu": 239_136_000},
         "c2": {"muc_tieu": 900},
         "ng888": {"muc_tieu": 200},
@@ -106,6 +106,13 @@ def fmt_so(v, don_vi, gon=False):
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",")
     return f"{v:.0f}"
+
+
+def pct_txt(p):
+    """% hiển thị: chưa tới 100 thì làm tròn XUỐNG (99,8% -> 99%), tránh hiện "100%" mà chưa đạt."""
+    if p is None:
+        return "–"
+    return f"{math.floor(p) if p < 100 else round(p):.0f}%"
 
 
 def fmt_co_don_vi(v, don_vi):
@@ -270,7 +277,11 @@ def chia_tung_ban(ch, phan_line):
                 if ca not in n["ca"]:
                     n["ca"].append(ca)
                 n["he_so"] += phan
+        cfg_thang = MUC_TIEU_THANG.get(ch["ngay"][:7], {})
         for key in ds_muc:
+            giao_tu = (cfg_thang.get(key) or {}).get("giao_tu")
+            if giao_tu and ch["ngay"] < giao_tu:
+                continue  # mục mới thêm giữa tháng: chưa giao cho từng bạn ở các ngày trước
             mt = ch["muc"][key]["mt_ngay"]
             if MUC[key].get("nguyen"):
                 chia = _chia_nguyen(mt, {t: n["he_so"] * mt for t, n in nguoi.items()})
@@ -531,7 +542,7 @@ def _nhan_xet(kq):
                         if (ch["muc"][k]["pct"] or 0) < 100))
         s = f"Cửa hàng đạt {len(dat)}/{len(MUC_THU_NGAN + MUC_FRESH)} mục tiêu ngày"
         if thieu:
-            s += " – hụt nhiều nhất " + ", ".join(f"{MUC[k]['ten']} {p:.0f}%" for p, k in thieu[:2])
+            s += " – hụt nhiều nhất " + ", ".join(f"{MUC[k]['ten']} {pct_txt(p)}" for p, k in thieu[:2])
         cau.append(s)
     else:
         cau.append("Chưa có file POS hôm nay nên chưa so được mục tiêu ngày cửa hàng")
@@ -539,11 +550,11 @@ def _nhan_xet(kq):
     if nguoi:
         cao = max(nguoi, key=lambda d: d["pct"])
         thap = min(nguoi, key=lambda d: d["pct"])
-        cau.append(f"cao nhất {cao['ten']} {cao['pct']:.0f}%")
+        cau.append(f"cao nhất {cao['ten']} {pct_txt(cao['pct'])}")
         if len(nguoi) > 1:
             yeu = min(((_pct(thap["bc"].get(k, 0), thap["mt"].get(k)) or 0, k) for k in thap["mt"] if thap["mt"].get(k)),
                       default=None)
-            s = f"thấp nhất {thap['ten']} {thap['pct']:.0f}%"
+            s = f"thấp nhất {thap['ten']} {pct_txt(thap['pct'])}"
             if yeu:
                 s += f" (yếu {NHAN_NGAN[yeu[1]]})"
             cau.append(s)
