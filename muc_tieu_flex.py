@@ -285,14 +285,7 @@ def build_the_chot_so(ngay_str, kq):
            for k in ch["thu_ngan"] + ch["fresh"] if ch["muc"][k]["mt_mai"] is not None]
     if mai:
         dau.append(_hop_canh_bao(["MT ngày mai (đã dồn phần thiếu/dư): " + " · ".join(mai)], NEN_XANH, CHU_XANH))
-    # Phần 2: từng bạn
-    phan_vai_tro = []  # [(tên vai trò, [khối])]
-    for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", ch["thu_ngan"]),
-                                    ("fresh", "FRESH", ch["fresh"])):
-        bang = kq["bang"].get(vai_tro)
-        if bang and bang["dong"]:
-            phan_vai_tro.append((tieu_de, [_sec("TỪNG BẠN · " + tieu_de)] + _bang_tung_ban(bang, ds_muc, ch)))
-    tung_ban = [x for _, khoi in phan_vai_tro for x in khoi]
+    # (03/11/2026) Phần từng bạn đã tách sang lệnh THU NGÂN / FRESH (tổng kết 3 ngày)
     # Phần 3: cảnh báo + nhận xét + chú thích
     canh_bao = []
     for b in kq["bao_vuot"]:
@@ -319,21 +312,87 @@ def build_the_chot_so(ngay_str, kq):
                      {"type": "span", "text": kq["nhan_xet"], "color": "#333333"}]}]})
     cuoi.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
                  "contents": [_t("% đạt từng bạn = trung bình % các mục được giao · xanh ≥100% · vàng 80–99% · "
-                                 "đỏ <80% · Có tư vấn = các bạn báo / thực tế (POS)", "xxs", GRAY)]})
+                                 "đỏ <80% · gõ THU NGÂN / FRESH để xem kết quả từng bạn 3 ngày", "xxs", GRAY)]})
     tieu_de = f"CHỐT SỐ · {_ngay_hien(ngay_str)}"
     dong_phu = [f"Ngày {ch['ngay_thu']}/{ch['so_ngay']} · {kq['so_bao']}/{kq['so_nguoi']} bạn đã báo · đơn vị: triệu"]
-    bubble = _bubble(tieu_de, dong_phu, dau + tung_ban + cuoi)
-    # LINE giới hạn ~30KB/bubble: đông người quá thì tách phần TỪNG BẠN sang thẻ thứ 2 (vuốt ngang)
-    if not tung_ban or _kb(bubble) <= 27000:
-        return bubble
-    ds = [_bubble(tieu_de, dong_phu, dau + cuoi)]
-    gop = _bubble("TỪNG BẠN · " + _ngay_hien(ngay_str), dong_phu, tung_ban)
-    if _kb(gop) <= 27000:
-        ds.append(gop)
-    else:  # đông người: mỗi vai trò 1 thẻ riêng (vuốt ngang)
-        ds += [_bubble(f"{ten} · {_ngay_hien(ngay_str)}", dong_phu, khoi) for ten, khoi in phan_vai_tro]
-    return {"type": "carousel", "contents": ds}
+    return _bubble(tieu_de, dong_phu, dau + cuoi)
 
 
 def _kb(o):
     return len(json.dumps(o, ensure_ascii=False, separators=(",", ":")).encode())
+
+
+# ---------------------------------------------------------------------------
+# THẺ 3: LỆNH "THU NGÂN" / "FRESH" — tổng kết 3 ngày đã CHỐT SỐ gần nhất (03/11/2026)
+# ---------------------------------------------------------------------------
+def build_the_xep_hang(kq):
+    """kq = muc_tieu_ngay.tinh_xep_hang(...)."""
+    ten_vt = "THU NGÂN" if kq["vai_tro"] == "thu_ngan" else "FRESH"
+    ngays, ds, ds_muc = kq["ngays"], kq["nguoi"], kq["muc"]
+    dm = lambda ng: f"{ng[8:10]}/{ng[5:7]}"
+    ky = dm(ngays[0]) + (f" – {dm(ngays[-1])}" if len(ngays) > 1 else "")
+    body = []
+    # khung nổi bật: cao nhất / thấp nhất
+    noi_bat = [{"type": "text", "text": "x", "size": "md", "wrap": True, "contents": [
+        {"type": "span", "text": "Cao nhất: ", "color": GRAY, "size": "sm"},
+        {"type": "span", "text": f"{ds[0]['ten']} {pct_txt(ds[0]['pct'])}", "weight": "bold", "color": _mau_pct(ds[0]["pct"])}]}]
+    if len(ds) > 1:
+        noi_bat.append({"type": "text", "text": "x", "size": "md", "wrap": True, "margin": "xs", "contents": [
+            {"type": "span", "text": "Thấp nhất: ", "color": GRAY, "size": "sm"},
+            {"type": "span", "text": f"{ds[-1]['ten']} {pct_txt(ds[-1]['pct'])}", "weight": "bold",
+             "color": _mau_pct(ds[-1]["pct"])}]})
+    body.append({"type": "box", "layout": "vertical", "paddingAll": "10px", "paddingStart": "12px",
+                 "paddingEnd": "12px", "backgroundColor": NEN_TONG, "contents": noi_bat})
+
+    # bảng 1: xếp hạng — % từng ngày + % cả kỳ
+    cs = "sm" if len(ngays) <= 3 else "xs"
+    w_ten, w_ng, w_tong = 30, 17, 21
+    rows = [_hang([_o_tieu_de(["Tên"], w_ten, "start")] + [_o_tieu_de([dm(ng)], w_ng, "end") for ng in ngays] +
+                  [_o_tieu_de([f"{len(ngays)} ngày"], w_tong, "end")], MTKM_HL_BG, "4px")]
+    for i, x in enumerate(ds):
+        phu = []
+        if x["khong"]:
+            phu.append("⚠ BC KHỐNG " + ", ".join(dm(ng) for ng, _ in x["khong"]))
+        ten_o = {"type": "box", "layout": "vertical", "flex": w_ten, "contents": [
+            _t(f"{i + 1}. {x['ten']}", "sm", MTKM_GOLD_TEXT, True, wrap=False)] +
+            [_t(p, "xxs", RED) for p in phu]}
+        o_ngay = []
+        for ng in ngays:
+            v = x["ngay"].get(ng)
+            if v is None:
+                o_ngay.append(_t("–", cs, GRAY, False, "end", w_ng))  # hôm đó không làm line này
+            elif not v["da_bao"]:
+                o_ngay.append(_t("không báo", "xxs", RED, True, "end", w_ng))
+            else:
+                o_ngay.append(_t(pct_txt(v["pct"]), cs, _mau_pct(v["pct"]), False, "end", w_ng))
+        rows.append(_hang([ten_o] + o_ngay + [_t(pct_txt(x["pct"]), cs, _mau_pct(x["pct"]), True, "end", w_tong)],
+                          NEN_TONG if i == 0 else None, "4px"))
+    body += [_sec("XẾP HẠNG"), {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px",
+                                "contents": rows}]
+
+    # bảng 2: % từng mục cả kỳ — thấy bạn nào yếu mục nào
+    w_muc, w_p = 30, 20
+    cs2 = "sm" if len(ds) <= 4 else "xs"
+    rows2 = [_hang([_o_tieu_de(["Mục"], w_muc, "start")] + [_o_tieu_de([x["ten"]], w_p, "end") for x in ds],
+                   MTKM_HL_BG, "4px")]
+    for k in ds_muc:
+        o = [_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
+        for x in ds:
+            p = x["muc_pct"].get(k)
+            o.append(_t(pct_txt(p) if p is not None else "–", cs2, _mau_pct(p) if p is not None else GRAY,
+                        False, "end", w_p))
+        rows2.append(_hang(o, pad="4px"))
+    body += [_sec(f"THEO MỤC · CẢ {len(ngays)} NGÀY"),
+             {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows2}]
+
+    body.append({"type": "box", "layout": "vertical", "paddingAll": "10px", "paddingStart": "12px",
+                 "paddingEnd": "12px", "contents": [{"type": "text", "text": "Nhận xét", "wrap": True, "size": "sm",
+                                                     "contents": [
+                     {"type": "span", "text": "Nhận xét: ", "weight": "bold", "color": MTKM_GOLD_TEXT},
+                     {"type": "span", "text": kq["nhan_xet"], "color": "#333333"}]}]})
+    body.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
+                 "contents": [_t(f"% {len(ngays)} ngày = tổng bán ÷ tổng mục tiêu từng mục (tối đa 200%/mục), "
+                                 "trung bình các mục · ngày không báo tính 0 · \"–\" = hôm đó không làm line này · chỉ tính ngày đã CHỐT SỐ · "
+                                 "xanh ≥100% · vàng 80–99% · đỏ <80%", "xxs", GRAY)]})
+    dong_phu = [f"{len(ngays)} ngày đã chốt gần nhất: {ky} · {len(ds)} bạn"]
+    return _bubble(f"{ten_vt} · {len(ngays)} NGÀY GẦN NHẤT", dong_phu, body)

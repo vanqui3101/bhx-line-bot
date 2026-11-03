@@ -787,6 +787,17 @@ def xoa_phan_line_truoc(ngay):
     return n
 # (02/11/2026) Lưu kết quả CHỐT SỐ từng ngày (mục tiêu + báo cáo + % từng bạn) để sau này đánh giá tuần/tháng
 # — vẫn còn dữ liệu dù bài phân line đã bị xoá.
+def get_chot_so_gan_nhat(den_ngay, so_ngay=3):
+    """(03/11/2026) Lấy kết quả CHỐT SỐ đã lưu của `so_ngay` ngày gần nhất (tính tới `den_ngay`).
+    Trả về [(ngay, data)] theo thứ tự ngày tăng dần."""
+    conn = _connect()
+    conn.execute("CREATE TABLE IF NOT EXISTS chot_so (ngay TEXT PRIMARY KEY, data_json TEXT NOT NULL)")
+    rows = conn.execute("SELECT ngay, data_json FROM chot_so WHERE ngay <= ? ORDER BY ngay DESC LIMIT ?",
+                        (den_ngay, so_ngay)).fetchall()
+    conn.close()
+    return [(n, json.loads(d)) for n, d in reversed(rows)]
+
+
 def save_chot_so(ngay, data):
     conn = _connect()
     conn.execute("CREATE TABLE IF NOT EXISTS chot_so (ngay TEXT PRIMARY KEY, data_json TEXT NOT NULL)")

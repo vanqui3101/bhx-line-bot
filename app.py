@@ -1426,6 +1426,28 @@ def handle_text_message(event):
             return
         # (01/11/2026) Lệnh CHỐT SỐ — thẻ chốt số cuối ngày: mục tiêu ngày cửa hàng so với POS,
         # MT ngày mai, từng bạn (mục tiêu / báo cáo / % đạt), ai báo cao hơn POS, 1 dòng nhận xét.
+        # (03/11/2026) Lệnh "THU NGÂN" / "FRESH": tổng kết 3 ngày đã CHỐT SỐ gần nhất của từng bạn
+        # (ai cao nhất, ai thấp nhất so với mục tiêu được giao mỗi ngày)
+        _m_xh = re.fullmatch(r"\s*(thu\s*ngan|fresh)\s*", text_kd)
+        if _m_xh:
+            try:
+                vai_tro_xh = "thu_ngan" if _m_xh.group(1).startswith("thu") else "fresh"
+                kq_xh = muc_tieu_ngay.tinh_xep_hang(vai_tro_xh, _ngay_hien_tai_str(), 3)
+                if not kq_xh["nguoi"]:
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                f"Chưa có ngày nào đã CHỐT SỐ có mục tiêu {'THU NGÂN' if vai_tro_xh == 'thu_ngan' else 'FRESH'} "
+                                "anh ạ – cuối ngày anh gõ CHỐT SỐ thì bot mới lưu kết quả từng bạn.")
+                    return
+                send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
+                    alt_text=f"{'Thu ngân' if vai_tro_xh == 'thu_ngan' else 'Fresh'} – tổng kết {len(kq_xh['ngays'])} ngày",
+                    contents=FlexContainer.from_dict(muc_tieu_flex.build_the_xep_hang(kq_xh))))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tổng kết: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
         if CHOT_SO_PATTERN.search(text_kd) and len(text_kd) <= 60:
             try:
                 ngay_chot = _ngay_hien_tai_str()
@@ -1435,10 +1457,11 @@ def handle_text_message(event):
                 kq_chot = muc_tieu_ngay.tinh_chot_so(ngay_chot)
                 if kq_chot is not None:
                     try:
-                        storage.save_chot_so(ngay_chot, {
-                            vt: [{k: d.get(k) for k in ("ten", "ca", "mt", "bc", "pct", "da_bao")}
-                                 for d in kq_chot["bang"].get(vt, {}).get("dong", [])]
-                            for vt in ("thu_ngan", "fresh")})
+                        luu = {vt: [{k: d.get(k) for k in ("ten", "ca", "mt", "bc", "pct", "da_bao")}
+                                    for d in kq_chot["bang"].get(vt, {}).get("dong", [])]
+                               for vt in ("thu_ngan", "fresh")}
+                        luu["bao_vuot"] = kq_chot.get("bao_vuot") or []  # (03/11/2026) để lệnh THU NGÂN/FRESH đánh dấu BC KHỐNG
+                        storage.save_chot_so(ngay_chot, luu)
                     except Exception:
                         traceback.print_exc()
                 if kq_chot is None:

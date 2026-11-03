@@ -564,6 +564,65 @@ def tinh_chot_so(ngay_str):
     return kq
 
 
+def tinh_xep_hang(vai_tro, den_ngay, so_ngay=3):
+    """(03/11/2026) Lệnh THU NGÂN / FRESH: tổng kết `so_ngay` ngày đã CHỐT SỐ gần nhất.
+    % cả kỳ của mỗi bạn = với từng mục: tổng bán ÷ tổng mục tiêu các ngày (tối đa 200%/mục),
+    rồi lấy trung bình các mục — cùng cách tính % đạt ngày. Ngày có mục tiêu mà không báo = bán 0."""
+    snaps = storage.get_chot_so_gan_nhat(den_ngay, so_ngay)
+    thu_tu_muc = MUC_THU_NGAN if vai_tro == "thu_ngan" else MUC_FRESH
+    nguoi, co_muc = {}, set()
+    for ngay, data in snaps:
+        khong = {}  # tên -> [mục] bị BC KHỐNG (chắc chắn là bạn đó) trong ngày
+        for b in data.get("bao_vuot") or []:
+            if b.get("chac") and b.get("muc") in thu_tu_muc:
+                for t in b.get("ten") or []:
+                    khong.setdefault(t, []).append(b["muc"])
+        for d in data.get(vai_tro) or []:
+            mt = {k: v for k, v in (d.get("mt") or {}).items() if v}
+            if not mt:  # báo ngoài line (không có mục tiêu) -> không xếp hạng
+                continue
+            x = nguoi.setdefault(d["ten"], {"ten": d["ten"], "ngay": {}, "mt": {}, "bc": {}, "khong": []})
+            x["ngay"][ngay] = {"pct": (d.get("pct") or 0) if d.get("da_bao") else 0, "da_bao": bool(d.get("da_bao")),
+                               "ca": d.get("ca")}
+            for k, v in mt.items():
+                co_muc.add(k)
+                x["mt"][k] = x["mt"].get(k, 0) + v
+                x["bc"][k] = x["bc"].get(k, 0) + (((d.get("bc") or {}).get(k) or 0) if d.get("da_bao") else 0)
+            if d["ten"] in khong:
+                x["khong"].append((ngay, khong[d["ten"]]))
+    for x in nguoi.values():
+        x["muc_pct"] = {k: _pct(x["bc"][k], x["mt"][k]) for k in x["mt"]}
+        ps = [p for p in x["muc_pct"].values() if p is not None]
+        x["pct"] = sum(ps) / len(ps) if ps else 0
+        x["chua_bao"] = [ng for ng, v in x["ngay"].items() if not v["da_bao"]]
+    ds = sorted(nguoi.values(), key=lambda x: (-x["pct"], x["ten"]))
+    return {"vai_tro": vai_tro, "ngays": [ng for ng, _ in snaps], "nguoi": ds,
+            "muc": [k for k in thu_tu_muc if k in co_muc], "nhan_xet": _nhan_xet_xep_hang(ds)}
+
+
+def _nhan_xet_xep_hang(ds):
+    if not ds:
+        return ""
+    def _manh_yeu(x, manh):
+        if len(x["chua_bao"]) == len(x["ngay"]):
+            return " – không báo cáo ngày nào"
+        ps = [(p, k) for k, p in x["muc_pct"].items() if p is not None]
+        if not ps:
+            return ""
+        p, k = max(ps) if manh else min(ps)
+        return f" – {'mạnh' if manh else 'yếu'} nhất {NHAN_NGAN[k]} {pct_txt(p)}"
+    cau = [f"Cao nhất {ds[0]['ten']} {pct_txt(ds[0]['pct'])}" + _manh_yeu(ds[0], True)]
+    if len(ds) > 1:
+        cau.append(f"thấp nhất {ds[-1]['ten']} {pct_txt(ds[-1]['pct'])}" + _manh_yeu(ds[-1], False))
+    chua = [f"{x['ten']} ({len(x['chua_bao'])} ngày)" for x in ds if x["chua_bao"]]
+    if chua:
+        cau.append("không báo cáo: " + ", ".join(chua))
+    khong = [x["ten"] for x in ds if x["khong"]]
+    if khong:
+        cau.append("có ngày BC KHỐNG: " + ", ".join(khong) + " – % của bạn đó có thể cao hơn thực tế")
+    return "; ".join(cau) + "."
+
+
 def _nhan_xet(kq):
     ch = kq["ch"]
     cau = []
