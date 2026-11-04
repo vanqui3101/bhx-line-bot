@@ -245,7 +245,7 @@ def _bang_tung_ban(bang, ds_muc, ch):
         if d["da_bao"] and d["pct"] is not None:
             hang_pct.append(_t(pct_txt(d["pct"]), cs, _mau_pct(d["pct"]), True, "end", w_ng))
         else:
-            hang_pct.append(_t("chưa báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
+            hang_pct.append(_t("không báo" if not d["da_bao"] else "–", "xxs", RED if not d["da_bao"] else GRAY,
                                True, "end", w_ng))
     rows.append(_hang(hang_pct, NEN_TONG, "4px"))
     bang1 = {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
@@ -312,7 +312,7 @@ def build_the_chot_so(ngay_str, kq):
                      {"type": "span", "text": kq["nhan_xet"], "color": "#333333"}]}]})
     cuoi.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
                  "contents": [_t("% đạt từng bạn = trung bình % các mục được giao · xanh ≥100% · vàng 80–99% · "
-                                 "đỏ <80% · gõ THU NGÂN / FRESH để xem kết quả từng bạn 3 ngày", "xxs", GRAY)]})
+                                 "đỏ <80% · từng bạn: gõ THU NGÂN / FRESH (3 ngày) hoặc THU NGÂN dd/mm (1 ngày)", "xxs", GRAY)]})
     tieu_de = f"CHỐT SỐ · {_ngay_hien(ngay_str)}"
     dong_phu = [f"Ngày {ch['ngay_thu']}/{ch['so_ngay']} · {kq['so_bao']}/{kq['so_nguoi']} bạn đã báo · đơn vị: triệu"]
     return _bubble(tieu_de, dong_phu, dau + cuoi)
@@ -393,6 +393,35 @@ def build_the_xep_hang(kq):
     body.append({"type": "box", "layout": "vertical", "paddingStart": "12px", "paddingEnd": "12px",
                  "contents": [_t(f"% {len(ngays)} ngày = tổng bán ÷ tổng mục tiêu từng mục (tối đa 200%/mục), "
                                  "trung bình các mục · ngày không báo tính 0 · \"–\" = hôm đó không làm line này · chỉ tính ngày đã CHỐT SỐ · "
+                                 f"xem chi tiết 1 ngày: gõ {ten_vt} dd/mm · "
                                  "xanh ≥100% · vàng 80–99% · đỏ <80%", "xxs", GRAY)]})
     dong_phu = [f"{len(ngays)} ngày đã chốt gần nhất: {ky} · {len(ds)} bạn"]
     return _bubble(f"{ten_vt} · {len(ngays)} NGÀY GẦN NHẤT", dong_phu, body)
+
+
+# ---------------------------------------------------------------------------
+# THẺ 4: LỆNH "THU NGÂN dd/mm" / "FRESH dd/mm" — mục tiêu & báo cáo từng bạn của 1 ngày (04/11/2026)
+# ---------------------------------------------------------------------------
+def build_the_tung_ban_ngay(kq):
+    """kq = muc_tieu_ngay.tinh_tung_ban_ngay(...)."""
+    ten_vt = "THU NGÂN" if kq["vai_tro"] == "thu_ngan" else "FRESH"
+    ch, bang = kq["ch"], kq["bang"]
+    body = [_sec("MỤC TIÊU & BÁO CÁO TỪNG BẠN")] + _bang_tung_ban(bang, ch[kq["vai_tro"]], ch)
+    canh_bao = []
+    for b in kq["bao_vuot"]:
+        dv = MUC[b["muc"]]["don_vi"]
+        canh_bao.append(f"⚠ BC KHỐNG {MUC[b['muc']]['ten']}: các bạn báo {fmt_co_don_vi(b['tong'], dv)} nhưng thực tế "
+                        f"chỉ {fmt_co_don_vi(b['pos'], dv)} → " +
+                        (", ".join(b["ten"]) if b.get("chac") else "kiểm tra " + ", ".join(b["ten"])))
+    if kq["chua_bao"]:
+        canh_bao.append("⚠ Không báo cáo: " + ", ".join(kq["chua_bao"]))
+    if not ch["co_pos"]:
+        canh_bao.append("⚠ Chưa có file POS 76 của ngày này → cột THỰC TẾ trống")
+    if canh_bao:
+        body.append({"type": "box", "layout": "vertical", "paddingTop": "8px", "contents": [_hop_canh_bao(canh_bao)]})
+    body.append({"type": "box", "layout": "vertical", "paddingAll": "10px", "paddingStart": "12px",
+                 "paddingEnd": "12px", "contents": [_t("Ô từng bạn: số báo (to) / mục tiêu (nhỏ) · % đạt = trung bình % "
+                                                       "các mục được giao · xanh ≥100% · vàng 80–99% · đỏ <80% · "
+                                                       f"gõ {ten_vt} để xem xếp hạng 3 ngày", "xxs", GRAY)]})
+    dong_phu = [f"{kq['so_bao']}/{kq['so_nguoi']} bạn đã báo · đơn vị: triệu"]
+    return _bubble(f"{ten_vt} · {_ngay_hien(kq['ngay'])}", dong_phu, body)

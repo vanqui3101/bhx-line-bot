@@ -600,6 +600,34 @@ def tinh_xep_hang(vai_tro, den_ngay, so_ngay=3):
             "muc": [k for k in thu_tu_muc if k in co_muc], "nhan_xet": _nhan_xet_xep_hang(ds)}
 
 
+def tinh_tung_ban_ngay(vai_tro, ngay_str):
+    """(04/11/2026) Lệnh "THU NGÂN dd/mm" / "FRESH dd/mm": mục tiêu + báo cáo từng bạn của 1 ngày.
+    Còn bài phân line ngày đó -> tính lại từ dữ liệu hiện tại (gồm cả báo cáo sửa sau CHỐT SỐ);
+    phân line đã bị xoá -> lấy kết quả đã lưu lúc CHỐT SỐ. Không có cả hai -> None."""
+    ch = tinh_cua_hang(ngay_str)
+    if ch is None:
+        return None
+    ds_muc = ch[vai_tro]
+    if storage.get_phan_line(ngay_str):
+        kq = tinh_chot_so(ngay_str)
+        bang = kq["bang"][vai_tro]
+        bao_vuot = kq["bao_vuot"]
+    else:
+        snap = dict(storage.get_chot_so_gan_nhat(ngay_str, 1)).get(ngay_str)
+        if not snap:
+            return None
+        dong = [dict(d, gio=None) for d in snap.get(vai_tro) or []]
+        tong_bc = {k: sum(((d.get("bc") or {}).get(k) or 0) for d in dong) for k in ds_muc}
+        co_tu_van = {k: (tong_bc[k] / ch["muc"][k]["pos"] * 100) if ch["muc"][k]["pos"] else None for k in ds_muc}
+        bang = {"dong": dong, "tong_bc": tong_bc, "co_tu_van": co_tu_van}
+        bao_vuot = snap.get("bao_vuot") or []
+    co_mt = [d for d in bang["dong"] if d.get("mt")]
+    return {"ngay": ngay_str, "vai_tro": vai_tro, "ch": ch, "bang": bang,
+            "bao_vuot": [b for b in bao_vuot if b.get("muc") in ds_muc],
+            "chua_bao": [d["ten"] for d in co_mt if not d.get("da_bao")],
+            "so_nguoi": len(co_mt), "so_bao": sum(1 for d in co_mt if d.get("da_bao"))}
+
+
 def _nhan_xet_xep_hang(ds):
     if not ds:
         return ""

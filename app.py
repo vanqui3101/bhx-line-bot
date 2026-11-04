@@ -1428,7 +1428,35 @@ def handle_text_message(event):
         # MT ngày mai, từng bạn (mục tiêu / báo cáo / % đạt), ai báo cao hơn POS, 1 dòng nhận xét.
         # (03/11/2026) Lệnh "THU NGÂN" / "FRESH": tổng kết 3 ngày đã CHỐT SỐ gần nhất của từng bạn
         # (ai cao nhất, ai thấp nhất so với mục tiêu được giao mỗi ngày)
-        _m_xh = re.fullmatch(r"\s*(thu\s*ngan|fresh)\s*", text_kd)
+        # (04/11/2026) Thêm ngày -> xem chi tiết từng bạn của 1 ngày: "THU NGÂN 03/11", "FRESH hôm qua"
+        _m_xh = re.fullmatch(r"\s*(thu\s*ngan|fresh)\s*(?:(hom\s*qua|hom\s*nay)|(\d{1,2})\s*[/-]\s*(\d{1,2}))?\s*",
+                             text_kd)
+        if _m_xh and (_m_xh.group(2) or _m_xh.group(3)):
+            vai_tro_xh = "thu_ngan" if _m_xh.group(1).startswith("thu") else "fresh"
+            ten_xh = "THU NGÂN" if vai_tro_xh == "thu_ngan" else "FRESH"
+            try:
+                if _m_xh.group(2):
+                    ngay_xh = _ngay_hom_qua_str() if "qua" in _m_xh.group(2) else _ngay_hien_tai_str()
+                else:
+                    ngay_xh = f"{_now_vn_datetime().year}-{int(_m_xh.group(4)):02d}-{int(_m_xh.group(3)):02d}"
+                dm_xh = f"{ngay_xh[8:10]}/{ngay_xh[5:7]}"
+                kq_ng = muc_tieu_ngay.tinh_tung_ban_ngay(vai_tro_xh, ngay_xh)
+                if not kq_ng or not kq_ng["so_nguoi"]:
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                f"Ngày {dm_xh} chưa có mục tiêu {ten_xh} từng bạn anh ạ (bot không có bài phân line và chưa "
+                                f"CHỐT SỐ ngày đó). Anh đăng lại bài phân line có ghi ngày {dm_xh} rồi gõ "
+                                f"CHỐT SỐ {dm_xh} là xem được.")
+                    return
+                send_card_with_ack(messaging_api, event.reply_token, target_id, FlexMessage(
+                    alt_text=f"{ten_xh} {dm_xh} – mục tiêu & báo cáo từng bạn",
+                    contents=FlexContainer.from_dict(muc_tieu_flex.build_the_tung_ban_ngay(kq_ng))))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi xem {ten_xh}: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
         if _m_xh:
             try:
                 vai_tro_xh = "thu_ngan" if _m_xh.group(1).startswith("thu") else "fresh"
