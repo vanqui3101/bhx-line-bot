@@ -172,6 +172,10 @@ def tinh_mtkm(ngay_bc_str):
         tien_do_rieng = None
         if gd:
             mt_ngay = _mt_ngay(gd["muc_tieu"], tn, _d(gd["tu"]), _d(gd["den"]), ngay_bc)
+            # (06/11/2026) Giai đoạn đẩy nhanh (Cá tuần 1) đã gần đạt -> MT ngày không thấp hơn nhịp tháng
+            # (trước đây Cá 06/11 ra 0,22tr vì tuần 1 chỉ còn thiếu 0,3tr). Thi đua chu kỳ (Celano) giữ nguyên.
+            if not dong.get("chi_trong_giai_doan") and dong.get("muc_tieu"):
+                mt_ngay = max(mt_ngay, _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc))
             nhan_gd = gd.get("nhan") or f"Tuần 1 ({_d(gd['tu']).strftime('%d')}–{_d(gd['den']).strftime('%d/%m')})"
             if dong.get("chi_trong_giai_doan"):
                 # thi đua theo chu kỳ: % tính trên mục tiêu chu kỳ, tiến độ theo số ngày của chu kỳ

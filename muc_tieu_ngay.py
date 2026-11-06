@@ -192,10 +192,16 @@ def _mt_con_lai(muc_tieu, theo_ngay, tu, den, ngay):
 def _mt_ngay_muc(cfg_thang, key, theo_ngay, ngay, dau_thang, cuoi_thang):
     c = cfg_thang[key]
     gd = next((g for g in c.get("giai_doan", []) if _d(g["tu"]) <= ngay <= _d(g["den"])), None)
+    v_thang = _mt_con_lai(c["muc_tieu"], theo_ngay, dau_thang, cuoi_thang, ngay) if c.get("muc_tieu") else 0
     if gd:
         v = _mt_con_lai(gd["muc_tieu"], theo_ngay, _d(gd["tu"]), _d(gd["den"]), ngay)
+        # (06/11/2026) Giai đoạn đẩy nhanh (VD Cá tuần 1) mà đã gần đạt thì MT ngày còn lại tụt rất thấp
+        # (Cá 06/11 chỉ còn 0,22tr) -> không bao giờ thấp hơn nhịp cần để đạt mục tiêu THÁNG.
+        # Riêng thi đua theo chu kỳ (Celano) thì chỉ tính theo chu kỳ.
+        if not c.get("chi_trong_giai_doan"):
+            v = max(v, v_thang)
     else:
-        v = _mt_con_lai(c["muc_tieu"], theo_ngay, dau_thang, cuoi_thang, ngay)
+        v = v_thang
     return math.ceil(v - 1e-9) if MUC[key].get("nguyen") else v
 
 
