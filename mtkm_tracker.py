@@ -55,14 +55,13 @@ MUC_TIEU_THANG = {
              "muc_tieu": 113_268_000, "cho": "thu_ngan"},
             {"key": "dmsk", "ten": "Tổng ĐMSK", "gom": ["sk", "sm", "kem", "dl"], "don_vi": "tr",
              "muc_tieu": 471_000_000, "la_tong": True},
-            # (02/11/2026) Hóa mỹ phẩm ngay dưới Tổng ĐMSK — base T10 243,56tr x 115%
-            {"key": "hmp", "ten": "Hóa mỹ phẩm", "don_vi": "tr", "muc_tieu": 280_100_000,
-             "nganh": ["Mỹ phẩm các loại", "Làm Đẹp", "Trang Thiết Bị Y Tế",
-                       "Hóa phẩm các loại", "Dụng cụ gia đình", "Dụng cụ nhà bếp"]},
-            {"key": "ca_trung", "ten": "Cá + Trứng", "nganh": NGANH_THUY_HAI_SAN, "pt": PT_TRUNG,
-             "don_vi": "tr", "muc_tieu": 75_953_000, "cho": "fresh",
-             # Tuần 1 phải chạy nhịp +15% so tháng 10 (74,46tr × 1,15 / 30 × 7)
-             "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 19_983_000}]},
+            # (06/11/2026) Bỏ Hóa mỹ phẩm khỏi thẻ MTKM (mục tiêu HMP từng bạn vẫn ở muc_tieu_ngay.py)
+            # (06/11/2026) Tách Cá và Trứng thành 2 dòng: Cá tính tiền, Trứng tính vỉ (như mục tiêu từng bạn)
+            {"key": "ca", "ten": "Cá (THS)", "nganh": NGANH_THUY_HAI_SAN, "don_vi": "tr",
+             "muc_tieu": 57_174_000, "cho": "fresh",
+             "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},
+            {"key": "trung", "ten": "Trứng (vỉ)", "truong": "trung_vi", "don_vi": "vi",
+             "muc_tieu": 750, "cho": "fresh"},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",
              "muc_tieu": 801.6, "cho": "fresh"},
             # (02/11/2026) Nhóm đếm số lượng: Celano (sữa lốc, chỉ trong chu kỳ thi đua) · C2 · nước giặt 888
@@ -181,7 +180,7 @@ def tinh_mtkm(ngay_bc_str):
         else:
             mt_ngay = _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc)
             nhan_gd = None
-        if dong["don_vi"] in ("tui", "loc"):
+        if dong["don_vi"] in ("tui", "loc", "vi"):
             mt_ngay = math.ceil(mt_ngay - 1e-9)
         hom_nay = tn.get(ngay_bc, 0.0)
         luy_ke = sum(v for dd, v in tn.items() if dd <= ngay_bc)
@@ -259,7 +258,7 @@ def _fmt(v, don_vi):
         return f"{v / 1_000_000:.2f}".replace(".", ",") + "tr"
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",") + "kg"
-    return f"{v:.0f} " + ("lốc" if don_vi == "loc" else "túi")
+    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ"}.get(don_vi, "túi")
 
 
 def tom_tat_text(kq):

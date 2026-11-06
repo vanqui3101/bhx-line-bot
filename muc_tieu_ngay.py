@@ -37,7 +37,9 @@ TY_LE_CA = {"sang": 0.4, "chieu": 0.6}
 TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 
 # Thứ tự cột trên thẻ
-MUC_THU_NGAN = ["sk", "celano", "dm", "hmp", "c2", "ng888"]
+# (06/11/2026) Bỏ hẳn Hóa mỹ phẩm (anh Quí chốt): không giao, không chốt số, không xếp hạng.
+# Vẫn giữ từ khoá "hmp" trong bộ đọc báo cáo để số HMP các bạn lỡ báo không bị đọc nhầm sang mục khác.
+MUC_THU_NGAN = ["sk", "celano", "dm", "c2", "ng888"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -71,7 +73,6 @@ NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp":
 MUC_TIEU_THANG = {
     "2026-11": {
         "sk": {"muc_tieu": 231_864_000},
-        "hmp": {"muc_tieu": 280_100_000, "giao_tu": "2026-11-02"},   # base T10 243,56tr x 115%; chia từng bạn từ 02/11
         "dm": {"muc_tieu": 239_136_000},
         "c2": {"muc_tieu": 900},
         # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
@@ -578,11 +579,15 @@ def tinh_xep_hang(vai_tro, den_ngay, so_ngay=3):
                 for t in b.get("ten") or []:
                     khong.setdefault(t, []).append(b["muc"])
         for d in data.get(vai_tro) or []:
-            mt = {k: v for k, v in (d.get("mt") or {}).items() if v}
+            mt = {k: v for k, v in (d.get("mt") or {}).items() if v and k in thu_tu_muc}  # bỏ mục đã ngưng (HMP)
             if not mt:  # báo ngoài line (không có mục tiêu) -> không xếp hạng
                 continue
             x = nguoi.setdefault(d["ten"], {"ten": d["ten"], "ngay": {}, "mt": {}, "bc": {}, "khong": []})
-            x["ngay"][ngay] = {"pct": (d.get("pct") or 0) if d.get("da_bao") else 0, "da_bao": bool(d.get("da_bao")),
+            # % ngày tính lại chỉ trên các mục còn theo dõi (ngày cũ đã lưu có cả HMP)
+            ps_ng = [_pct((((d.get("bc") or {}).get(k)) or 0), v) for k, v in mt.items()]
+            ps_ng = [p for p in ps_ng if p is not None]
+            x["ngay"][ngay] = {"pct": (sum(ps_ng) / len(ps_ng) if ps_ng else 0) if d.get("da_bao") else 0,
+                               "da_bao": bool(d.get("da_bao")),
                                "ca": d.get("ca")}
             for k, v in mt.items():
                 co_muc.add(k)
@@ -616,7 +621,12 @@ def tinh_tung_ban_ngay(vai_tro, ngay_str):
         snap = dict(storage.get_chot_so_gan_nhat(ngay_str, 1)).get(ngay_str)
         if not snap:
             return None
-        dong = [dict(d, gio=None) for d in snap.get(vai_tro) or []]
+        dong = []
+        for d in snap.get(vai_tro) or []:  # bỏ mục đã ngưng (HMP) và tính lại % đạt
+            mt_d = {k: v for k, v in (d.get("mt") or {}).items() if k in ds_muc}
+            ps_d = [p for p in (_pct((((d.get("bc") or {}).get(k)) or 0), v) for k, v in mt_d.items() if v) if p is not None]
+            dong.append(dict(d, gio=None, mt=mt_d,
+                             pct=(sum(ps_d) / len(ps_d) if ps_d else None) if d.get("da_bao") else None))
         tong_bc = {k: sum(((d.get("bc") or {}).get(k) or 0) for d in dong) for k in ds_muc}
         co_tu_van = {k: (tong_bc[k] / ch["muc"][k]["pos"] * 100) if ch["muc"][k]["pos"] else None for k in ds_muc}
         bang = {"dong": dong, "tong_bc": tong_bc, "co_tu_van": co_tu_van}
