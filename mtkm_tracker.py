@@ -57,9 +57,10 @@ MUC_TIEU_THANG = {
              "muc_tieu": 471_000_000, "la_tong": True},
             # (06/11/2026) Bỏ Hóa mỹ phẩm khỏi thẻ MTKM (mục tiêu HMP từng bạn vẫn ở muc_tieu_ngay.py)
             # (06/11/2026) Tách Cá và Trứng thành 2 dòng: Cá tính tiền, Trứng tính vỉ (như mục tiêu từng bạn)
+            # (06/11/2026) Cá: doanh thu cá T10 58,31tr x 102% = 59,48tr, bỏ mục tiêu riêng tuần 1.
+            # MT ngày = (59,48tr - đã bán tới hết hôm qua) / số ngày còn lại tính cả hôm nay.
             {"key": "ca", "ten": "Cá (THS)", "nganh": NGANH_THUY_HAI_SAN, "don_vi": "tr",
-             "muc_tieu": 57_174_000, "cho": "fresh",
-             "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},
+             "muc_tieu": 59_480_000, "cho": "fresh"},
             {"key": "trung", "ten": "Trứng (vỉ)", "truong": "trung_vi", "don_vi": "vi",
              "muc_tieu": 750, "cho": "fresh"},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",

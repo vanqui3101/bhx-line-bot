@@ -65,8 +65,9 @@ MUC = {
 #  sk: base T9 x120% (chia theo tỉ trọng 4 ngành ĐMSK 471tr) · dm = sữa mát + kem + đông lạnh · hmp: base T10 x115%
 #  c2: anh Quí chốt 01/11: trung bình 30 lốc/ngày (thùng TH24 = 4 lốc, tính cả online) · 888: tối thiểu 200 túi
 #  trung: 25 vỉ/ngày (sáng 10 + chiều 15) · heo: T9 728,7kg x110%
-#  ca: (cá + trứng 75,953tr) - tiền 750 vỉ trứng (giá TB T10 ~25.039đ/vỉ = 18,779tr) = 57,174tr;
-#      tuần 1 (01-07/11) cá + trứng phải chạy nhịp +15% (19,983tr) -> cá tuần 1 = 19,983 - 175 vỉ x 25.039 = 15,601tr
+#  ca: (06/11/2026, anh Quí chốt) doanh thu cá (ngành Thủy hải sản) T10 x 102%:
+#      cá + trứng T10 74,464tr - trứng T10 16,150tr = cá T10 58,314tr -> x1,02 = 59,48tr.
+#      MT ngày = (59,48tr - đã bán từ 01/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay; bán dư thì ngày sau giảm.
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P"}
 
@@ -81,8 +82,7 @@ MUC_TIEU_THANG = {
                    "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183,
                                   "muc_tieu_tien": 6_015_000}]},
         "ng888": {"muc_tieu": 600},  # (02/11/2026) anh nâng lên 20 túi/ngày x 30 ngày (trước: 200 túi/tháng)
-        "ca": {"muc_tieu": 57_174_000,
-               "giai_doan": [{"tu": "2026-11-01", "den": "2026-11-07", "muc_tieu": 15_601_000}]},
+        "ca": {"muc_tieu": 59_480_000},   # (06/11/2026) doanh thu cá T10 58,31tr x 102%, bỏ mục tiêu riêng tuần 1
         "trung": {"muc_tieu": 750},
         "heo": {"muc_tieu": 801.6},
     },
