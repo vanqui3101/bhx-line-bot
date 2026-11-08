@@ -128,13 +128,7 @@ def _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro):
                           [_t(fmt_so(n["mt"][k], dv) if n["mt"].get(k) else "–", cs,
                               BLACK if n["mt"].get(k) else GRAY, bool(n["mt"].get(k)), "end", w_ng)
                            for n in nguoi], pad="4px"))
-    if vai_tro == "thu_ngan":
-        tien = [k for k in ds_muc if MUC[k]["don_vi"] == "tr"]
-        tong_ch = sum(ch["muc"][k]["mt_ngay"] or 0 for k in tien)
-        rows.append(_hang([_t("Tổng tiền", "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
-                           _t(fmt_so(tong_ch, "tr"), cs, GRAY, True, "end", w_ch)] +
-                          [_t(fmt_so(sum(n["mt"].get(k, 0) for k in tien), "tr"), cs, RED, True, "end", w_ng)
-                           for n in nguoi], NEN_TONG, "4px"))
+    # (08/11/2026) Bỏ dòng "Tổng tiền" (cộng sữa khô + đông mát + nấm) — anh Quí không cần, dễ gây hiểu nhầm
     return {"type": "box", "layout": "vertical", "paddingStart": "8px", "paddingEnd": "8px", "contents": rows}
 
 
