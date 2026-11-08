@@ -65,6 +65,9 @@ MUC_TIEU_THANG = {
              "muc_tieu": 750, "cho": "fresh"},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",
              "muc_tieu": 801.6, "cho": "fresh"},
+            # (08/11/2026) Nấm: phải đạt 25tr cả tháng, hiện từ 09/11 (lũy kế tính từ 01/11)
+            {"key": "nam", "ten": "Nấm", "truong": "nam.doanh_thu", "don_vi": "tr",
+             "muc_tieu": 25_000_000, "cho": "thu_ngan", "ap_dung_tu": "2026-11-09"},
             # (02/11/2026) Nhóm đếm số lượng: Celano (sữa lốc, chỉ trong chu kỳ thi đua) · C2 · nước giặt 888
             {"key": "celano", "ten": "Celano (lốc)", "truong": "celano_loc", "don_vi": "loc", "muc_tieu": 0,
              "chi_trong_giai_doan": True,
@@ -72,6 +75,10 @@ MUC_TIEU_THANG = {
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
             {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
              "muc_tieu": 600, "cho": "thu_ngan"},  # (02/11/2026) 20 túi/ngày
+            # (08/11/2026) Thi đua tuần 2: kem đánh răng P/S 2 mã bán hết tồn (18 + 30 = 48 tuýp)
+            {"key": "kdr", "ten": "Kem đánh răng P/S", "truong": "kdr_ps_tuyp", "don_vi": "tuyp", "muc_tieu": 0,
+             "cho": "thu_ngan", "chi_trong_giai_doan": True,
+             "giai_doan": [{"tu": "2026-11-09", "den": "2026-11-15", "muc_tieu": 48, "nhan": "Thi đua 09–15/11"}]},
         ],
     },
 }
@@ -142,7 +149,8 @@ def tinh_mtkm(ngay_bc_str):
     def _gd_cua(dong):
         return next((g for g in dong.get("giai_doan", []) if _d(g["tu"]) <= ngay_bc <= _d(g["den"])), None)
 
-    ds_dong = [dg for dg in cau_hinh["dong"] if not (dg.get("chi_trong_giai_doan") and not _gd_cua(dg))]
+    ds_dong = [dg for dg in cau_hinh["dong"] if not (dg.get("chi_trong_giai_doan") and not _gd_cua(dg))
+               and not (dg.get("ap_dung_tu") and ngay_bc < _d(dg["ap_dung_tu"]))]
     for dong in ds_dong:
         if dong.get("la_tong"):
             continue
@@ -185,7 +193,7 @@ def tinh_mtkm(ngay_bc_str):
         else:
             mt_ngay = _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc)
             nhan_gd = None
-        if dong["don_vi"] in ("tui", "loc", "vi"):
+        if dong["don_vi"] in ("tui", "loc", "vi", "tuyp"):
             mt_ngay = math.ceil(mt_ngay - 1e-9)
         hom_nay = tn.get(ngay_bc, 0.0)
         luy_ke = sum(v for dd, v in tn.items() if dd <= ngay_bc)
@@ -263,7 +271,7 @@ def _fmt(v, don_vi):
         return f"{v / 1_000_000:.2f}".replace(".", ",") + "tr"
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",") + "kg"
-    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ"}.get(don_vi, "túi")
+    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ", "tuyp": "tuýp"}.get(don_vi, "túi")
 
 
 def tom_tat_text(kq):

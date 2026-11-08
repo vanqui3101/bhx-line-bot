@@ -39,7 +39,8 @@ TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 # Thứ tự cột trên thẻ
 # (06/11/2026) Bỏ hẳn Hóa mỹ phẩm (anh Quí chốt): không giao, không chốt số, không xếp hạng.
 # Vẫn giữ từ khoá "hmp" trong bộ đọc báo cáo để số HMP các bạn lỡ báo không bị đọc nhầm sang mục khác.
-MUC_THU_NGAN = ["sk", "celano", "dm", "c2", "ng888"]
+# (08/11/2026) Tuần 2: thêm Nấm (tiền, tới hết tháng) và Kem đánh răng P/S (tuýp, thi đua 09–15/11) cho thu ngân
+MUC_THU_NGAN = ["sk", "dm", "nam", "celano", "c2", "ng888", "kdr"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -56,6 +57,8 @@ MUC = {
                       "Hóa phẩm các loại", "Dụng cụ gia đình", "Dụng cụ nhà bếp"]},
     "c2": {"ten": "C2", "don_vi": "lốc", "vai_tro": "thu_ngan", "truong": "c2_loc", "nguyen": True},
     "ng888": {"ten": "888", "don_vi": "túi", "vai_tro": "thu_ngan", "truong": "nuoc_giat_888.sl", "nguyen": True},
+    "nam": {"ten": "Nấm", "don_vi": "tr", "vai_tro": "thu_ngan", "truong": "nam.doanh_thu"},
+    "kdr": {"ten": "Kem đánh răng", "don_vi": "tuýp", "vai_tro": "thu_ngan", "truong": "kdr_ps_tuyp", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
     "heo": {"ten": "Heo C.P", "don_vi": "kg", "vai_tro": "fresh", "truong": "heo_cp_kg"},
@@ -69,7 +72,7 @@ MUC = {
 #      cá + trứng T10 74,464tr - trứng T10 16,150tr = cá T10 58,314tr -> x1,02 = 59,48tr.
 #      MT ngày = (59,48tr - đã bán từ 01/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay; bán dư thì ngày sau giảm.
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
-             "ca": "cá", "trung": "trứng", "heo": "heo C.P"}
+             "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
@@ -85,6 +88,13 @@ MUC_TIEU_THANG = {
         "ca": {"muc_tieu": 59_480_000},   # (06/11/2026) doanh thu cá T10 58,31tr x 102%, bỏ mục tiêu riêng tuần 1
         "trung": {"muc_tieu": 750},
         "heo": {"muc_tieu": 801.6},
+        # (08/11/2026) anh Quí chốt: Nấm phải đạt 25tr cả tháng, giao thu ngân từ 09/11
+        #   (MT ngày = 25tr - đã bán từ 01/11 tới hết hôm qua, chia số ngày còn lại)
+        "nam": {"muc_tieu": 25_000_000, "ap_dung_tu": "2026-11-09"},
+        # (08/11/2026) Thi đua tuần 2: kem đánh răng P/S 2 mã phải bán HẾT TỒN trong tuần
+        #   tồn POS 322 chiều 08/11: Muối hồng hoa cúc 18 hộp + Baking soda hương thảo 30 tuýp = 48
+        "kdr": {"chi_trong_giai_doan": True,
+                "giai_doan": [{"tu": "2026-11-09", "den": "2026-11-15", "muc_tieu": 48}]},
     },
 }
 
@@ -226,9 +236,15 @@ def tinh_cua_hang(ngay_str):
         gd_nay = next((g for g in c.get("giai_doan", []) if _d(g["tu"]) <= ngay <= _d(g["den"])), None)
         if c.get("chi_trong_giai_doan") and not gd_nay:
             continue  # thi đua theo chu kỳ: ngoài chu kỳ thì không hiện
+        if c.get("ap_dung_tu") and ngay < _d(c["ap_dung_tu"]):
+            continue  # (08/11/2026) mục mới chỉ hiện từ ngày áp dụng (VD Nấm từ 09/11)
         theo_ngay = {}
         d = dau_thang
         while d <= ngay:
+            if c.get("chi_trong_giai_doan") and d < _d(gd_nay["tu"]):
+                theo_ngay[d] = 0.0  # trước chu kỳ thi đua: không cần số, không báo thiếu file
+                d += timedelta(days=1)
+                continue
             v = _gia_tri(da_luu.get(_s(d)), key)
             if v is None and d < ngay and _s(d) not in thieu:
                 thieu.append(_s(d))
@@ -338,6 +354,8 @@ def ca_txt(ds_ca):
 # ---------------------------------------------------------------------------
 # Từ khoá dò trên bản KHÔNG DẤU (giữ nguyên vị trí ký tự so với bản NFC)
 _TU_KHOA = [
+    # (08/11/2026) kem đánh răng đặt đầu để "kem" không bị hiểu sang mục khác
+    ("kdr", r"kem\s*danh\s*rang|(?<![a-z0-9])kdr(?![a-z0-9])|(?<![a-z0-9])p\s?/\s?s(?![a-z0-9])|(?<![a-z0-9/])ps(?![a-z0-9])"),
     ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])"),
     ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),
@@ -349,14 +367,16 @@ _TU_KHOA = [
     ("heo", r"(?:thit\s*)?heo(?:\s*c\.?\s*p)?"),
 ]
 _CA_CO_DAU = re.compile(r"(?<!\w)cá(?!\w)")  # "cá" phải dò trên bản CÓ dấu (tránh "các", "ca sáng")
-_DON_VI_DEM = r"loc|vi|hop|tui|kg|ky|ki|cay|thung|chai|khay|qua|g"
+_NAM_CO_DAU = re.compile(r"(?<!\w)nấm(?!\w)")  # (08/11/2026) "nấm" dò trên bản CÓ dấu (tránh "anh Nam", "năm")
+_DON_VI_DEM = r"loc|vi|hop|tuyp|tub|tui|kg|ky|ki|cay|cai|thung|chai|khay|qua|g"
 _SO = re.compile(
     r"(?P<a>\d+(?:[.,]\d+)?)\s*(?:tr|trieu|cu)(?![a-z])\s*(?P<b>\d+)?"     # 2tr2 · 1tr972 · 1,5tr
     r"|(?P<c>\d+(?:[.,]\d+)?)\s*(?:k|nghin|ngan)(?![a-z])"                    # 500k · 750 nghìn
     r"|(?P<d>\d+(?:[.,]\d+)*)"                                                # số trơn
     r"(?:\s*(?P<u>" + _DON_VI_DEM + r")(?![a-z]))?"
 )
-_DON_VI_HIEN = {"loc": "lốc", "vi": "vỉ", "hop": "hộp", "tui": "túi", "kg": "kg", "ky": "kg", "ki": "kg",
+_DON_VI_HIEN = {"loc": "lốc", "vi": "vỉ", "hop": "hộp", "tuyp": "tuýp", "tub": "tuýp", "cai": "cái",
+                "tui": "túi", "kg": "kg", "ky": "kg", "ki": "kg",
                 "cay": "cây", "thung": "thùng", "chai": "chai", "khay": "khay", "qua": "quả", "g": "g"}
 _TU_BAO_CAO = re.compile(r"(?<!\w)(bán|ban|bc|báo cáo|bao cao|b/c)(?!\w)")
 
@@ -414,11 +434,12 @@ def doc_bao_cao(text, che_doan=None):
             kw.append((m.start(), m.end(), key))
             for i in range(m.start(), m.end()):
                 da_che[i] = True
-    for m in _CA_CO_DAU.finditer(nfc):
-        if not any(da_che[m.start():m.end()]):
-            kw.append((m.start(), m.end(), "ca"))
-            for i in range(m.start(), m.end()):
-                da_che[i] = True
+    for pat_cd, key_cd in ((_CA_CO_DAU, "ca"), (_NAM_CO_DAU, "nam")):
+        for m in pat_cd.finditer(nfc):
+            if not any(da_che[m.start():m.end()]):
+                kw.append((m.start(), m.end(), key_cd))
+                for i in range(m.start(), m.end()):
+                    da_che[i] = True
     if not kw:
         return {}, []
     kw.sort()

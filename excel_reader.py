@@ -59,6 +59,13 @@ CELANO_MODELS = {
     "2609001223",  # Trà sữa vị Gạo rang có thạch 170ml
 }
 
+# (08/11/2026) Thi đua tuần 2 (09–15/11): kem đánh răng P/S 2 mã — đếm số tuýp/hộp bán (anh Quí: bán hết tồn)
+#   khớp theo "Mã sản phẩm" (anh đưa) hoặc mã Model tương ứng trong POS 76
+KDR_PS_MA = {
+    "9252712000461", "2208000817",   # P/S Muối hồng & hoa cúc hộp 230g
+    "9252712000219", "2009001129",   # P/S Baking soda & hương thảo 230g
+}
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -206,6 +213,7 @@ def _empty_day_acc():
         "heo_cp_damo_kg": 0.0,
         "celano_loc": 0.0,
         "celano_tien": 0.0,
+        "kdr_ps_tuyp": 0.0,
     }
 
 
@@ -258,6 +266,8 @@ def _finish_day_payload(ngay_str, acc):
         # (02/11/2026) Thi đua Celano 4 SKU (theo mã Model) — quy ra LỐC 4 hộp + doanh thu
         "celano_loc": acc["celano_loc"],
         "celano_tien": acc["celano_tien"],
+        # (08/11/2026) Kem đánh răng P/S 2 mã thi đua tuần 2 — số tuýp/hộp bán ra
+        "kdr_ps_tuyp": acc["kdr_ps_tuyp"],
     }
 
 
@@ -286,6 +296,7 @@ def read_category_rows_by_date(input_path):
     # Cột không bắt buộc (file cũ có thể không có)
     i_phan_tich = header.index("Ngành hàng - Phân tích") if "Ngành hàng - Phân tích" in header else None
     i_model = header.index("Model") if "Model" in header else None
+    i_ma_sp = header.index("Mã sản phẩm") if "Mã sản phẩm" in header else None
 
     theo_ngay = {}
     for row in rows_iter:
@@ -359,6 +370,12 @@ def read_category_rows_by_date(input_path):
             he_so = {"HỘP": 0.25, "THÙNG": 12}.get(don_vi_up, 1)
             acc["celano_loc"] += sl_thuc_xuat * he_so
             acc["celano_tien"] += thanh_tien
+
+        # ---- (08/11/2026) KEM ĐÁNH RĂNG P/S 2 mã thi đua -> số tuýp/hộp ----
+        if not la_tang and (
+                (i_ma_sp is not None and i_ma_sp < len(row) and str(row[i_ma_sp] or "").strip() in KDR_PS_MA)
+                or (i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in KDR_PS_MA)):
+            acc["kdr_ps_tuyp"] += sl_thuc_xuat
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
