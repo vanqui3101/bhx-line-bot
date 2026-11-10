@@ -496,6 +496,7 @@ LENH = [
     ("muc_tieu_tung_ban", re.compile(r"\s*(muc\s*tieu\s*tung\s*ban|mttb)\s*")),
     ("bay_ngay", re.compile(r"\s*(ket\s*qua\s*7\s*ngay|7\s*ngay)\s*")),
     ("cai_menu", re.compile(r"\s*cai\s*menu\s*")),
+    ("menu", re.compile(r"\s*menu\s*")),
 ]
 
 
@@ -504,6 +505,36 @@ def nhan_lenh(text_kd):
         if pat.fullmatch(text_kd or ""):
             return ten
     return None
+
+
+# (10/11/2026) THẺ MENU trong NHÓM: ai gõ "MENU" bot gửi thẻ 5 nút; nút nằm trong tin nhắn nên ai
+# trong nhóm kéo lên bấm lúc nào cũng được (bấm = gửi đúng chữ lệnh, bot trả bảng vào nhóm).
+NUT_MENU = [  # (dòng 1, dòng 2, chữ lệnh gửi đi, màu nền)
+    ("Doanh thu", "lũy kế", "DOANH THU LŨY KẾ", "#0FA958"),
+    ("LN", "Fresh", "LN FRESH", "#169C4B"),
+    ("Mục tiêu", "ngày", "MTKM", "#12A36B"),
+    ("Mục tiêu", "từng bạn", "MỤC TIÊU TỪNG BẠN", "#0B9A5E"),
+    ("Kết quả", "7 ngày", "KẾT QUẢ 7 NGÀY", "#119E55"),
+]
+
+
+def _nut(d1, d2, lenh, mau):
+    return {"type": "box", "layout": "vertical", "flex": 1, "backgroundColor": mau, "cornerRadius": "12px",
+            "paddingTop": "14px", "paddingBottom": "14px", "paddingStart": "6px", "paddingEnd": "6px",
+            "action": {"type": "message", "label": (d1 + " " + d2)[:20], "text": lenh},
+            "contents": [_t(d1, "md", "#FFFFFF", True, "center", wrap=False),
+                         _t(d2, "md", "#FFFFFF", True, "center", wrap=False)]}
+
+
+def build_the_menu():
+    n = [_nut(*x) for x in NUT_MENU]
+    hang = lambda ds: {"type": "box", "layout": "horizontal", "spacing": "8px", "contents": ds}
+    return {"type": "bubble", "size": "mega",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#E3F6EA", "paddingAll": "14px",
+                       "contents": [_t("MENU TROLY", "lg", "#0E7A3E", True),
+                                    _t("Bấm 1 ô, bot trả bảng vào nhóm", "xs", "#3F7D57")]},
+            "body": {"type": "box", "layout": "vertical", "spacing": "8px", "paddingAll": "12px",
+                     "backgroundColor": "#F2FBF5", "contents": [hang(n[:3]), hang(n[3:])]}}
 
 
 # Ô bấm trên ảnh menu 2500x1686: hàng trên 3 ô, hàng dưới 2 ô (khớp ảnh richmenu.jpg)

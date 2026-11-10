@@ -1536,6 +1536,7 @@ def handle_text_message(event):
             return
         # (09/11/2026) 5 NÚT MENU (chat riêng) — gõ đúng chữ trong nhóm cũng ra thẻ:
         # DOANH THU LŨY KẾ · LN FRESH · MTKM (có sẵn) · MỤC TIÊU TỪNG BẠN · KẾT QUẢ 7 NGÀY · CÀI MENU
+        # (10/11/2026) + "MENU": thẻ 5 nút bấm trong nhóm
         _lenh_menu = menu_bot.nhan_lenh(text_kd)
         if _lenh_menu:
             try:
@@ -1965,6 +1966,9 @@ def push_text(messaging_api, target_id, text):
 def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id):
     """(09/11/2026) Trả thẻ cho 4 nút menu mới + lệnh CÀI MENU."""
     hom_nay = _ngay_hien_tai_str()
+    if lenh == "menu":  # (10/11/2026) thẻ 5 nút, gõ ở nhóm hay chat riêng đều được
+        reply_flex(messaging_api, event.reply_token, "Menu TROLY", menu_bot.build_the_menu())
+        return
     if lenh == "cai_menu":
         if source_type != "user":
             notify_text(messaging_api, event.reply_token, target_id,
