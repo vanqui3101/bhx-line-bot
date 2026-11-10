@@ -61,7 +61,7 @@ from linebot.v3.messaging import (
     FlexMessage,
     FlexContainer,
 )
-from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent, ImageMessageContent
+from linebot.v3.webhooks import MessageEvent, FileMessageContent, TextMessageContent, ImageMessageContent, PostbackEvent
 from excel_reader import (
     read_all_rows, read_category_rows, read_category_rows_by_date, read_stock_rows, attach_stock_percentage,
     read_thuong_period_rows, count_distinct_dates, detect_file_type,
@@ -1963,9 +1963,47 @@ def push_text(messaging_api, target_id, text):
     messaging_api.push_message(
         PushMessageRequest(to=target_id, messages=[TextMessage(text=text)])
     )
-def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id):
-    """(09/11/2026) Trả thẻ cho 4 nút menu mới + lệnh CÀI MENU."""
+@handler.add(PostbackEvent)
+def handle_postback(event):
+    """(10/11/2026) Bấm ô trong MENU (thẻ trong nhóm hoặc menu chat riêng): không hiện chữ trong khung chat,
+    bot chỉ trả đúng bảng."""
+    lenh = menu_bot.lenh_tu_postback(getattr(event.postback, "data", ""))
+    if not lenh:
+        return
+    with ApiClient(configuration) as api_client:
+        messaging_api = MessagingApi(api_client)
+        source_type = event.source.type
+        target_id = event.source.group_id if source_type == "group" else getattr(event.source, "user_id", None)
+        print(f"[MENU-POSTBACK] {lenh} tu {source_type}")
+        try:
+            _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id, chi_bang=True)
+        except Exception as e:
+            traceback.print_exc()
+            try:
+                notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo bảng: {e}")
+            except Exception:
+                traceback.print_exc()
+def _gui_bang(messaging_api, reply_token, target_id, flex_message, chi_bang):
+    """chi_bang=True (bấm nút menu): chỉ trả thẻ, không kèm câu "Em gửi Anh và Team..."."""
+    if not chi_bang:
+        send_card_with_ack(messaging_api, reply_token, target_id, flex_message)
+        return
+    try:
+        messaging_api.reply_message(ReplyMessageRequest(reply_token=reply_token, messages=[flex_message]))
+    except Exception:
+        traceback.print_exc()
+        messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id, chi_bang=False):
+    """(09/11/2026) Trả thẻ cho 4 nút menu mới + lệnh CÀI MENU. (10/11) + "mtkm" cho nút bấm."""
     hom_nay = _ngay_hien_tai_str()
+    if lenh == "mtkm":
+        flex_message = build_category_report_message()
+        if flex_message is None:
+            notify_text(messaging_api, event.reply_token, target_id,
+                        "Chưa có dữ liệu ngành hàng nào được lưu. Anh gửi file Excel chi tiết ngành hàng trước nhé.")
+            return
+        _gui_bang(messaging_api, event.reply_token, target_id, flex_message, chi_bang)
+        return
     if lenh == "menu":  # (10/11/2026) thẻ 5 nút, gõ ở nhóm hay chat riêng đều được
         reply_flex(messaging_api, event.reply_token, "Menu TROLY", menu_bot.build_the_menu())
         return
@@ -2005,8 +2043,8 @@ def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target
                         "Chưa có ngày nào đã CHỐT SỐ có mục tiêu từng bạn anh ạ.")
             return
         alt = "Kết quả 7 ngày gần nhất"
-    send_card_with_ack(messaging_api, event.reply_token, target_id,
-                       FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(bubble)))
+    _gui_bang(messaging_api, event.reply_token, target_id,
+              FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(bubble)), chi_bang)
 def notify_text(messaging_api, reply_token, target_id, text):
     """Gửi text ưu tiên bằng REPLY (miễn phí, không tính hạn mức tin nhắn tháng
     của LINE OA); chỉ khi reply lỗi (token hết hạn...) mới thử push."""

@@ -509,19 +509,29 @@ def nhan_lenh(text_kd):
 
 # (10/11/2026) THẺ MENU trong NHÓM: ai gõ "MENU" bot gửi thẻ 5 nút; nút nằm trong tin nhắn nên ai
 # trong nhóm kéo lên bấm lúc nào cũng được (bấm = gửi đúng chữ lệnh, bot trả bảng vào nhóm).
-NUT_MENU = [  # (dòng 1, dòng 2, chữ lệnh gửi đi, màu nền)
-    ("Doanh thu", "lũy kế", "DOANH THU LŨY KẾ", "#0FA958"),
-    ("LN", "Fresh", "LN FRESH", "#169C4B"),
-    ("Mục tiêu", "ngày", "MTKM", "#12A36B"),
-    ("Mục tiêu", "từng bạn", "MỤC TIÊU TỪNG BẠN", "#0B9A5E"),
-    ("Kết quả", "7 ngày", "KẾT QUẢ 7 NGÀY", "#119E55"),
+# (10/11/2026) Nút bấm dùng POSTBACK: bấm vào KHÔNG hiện chữ lệnh trong khung chat, bot chỉ trả bảng.
+NUT_MENU = [  # (dòng 1, dòng 2, mã lệnh, màu nền)
+    ("Doanh thu", "lũy kế", "doanh_thu", "#0FA958"),
+    ("LN", "Fresh", "ln_fresh", "#169C4B"),
+    ("Mục tiêu", "ngày", "mtkm", "#12A36B"),
+    ("Mục tiêu", "từng bạn", "muc_tieu_tung_ban", "#0B9A5E"),
+    ("Kết quả", "7 ngày", "bay_ngay", "#119E55"),
 ]
+LENH_POSTBACK = {x[2] for x in NUT_MENU}
+
+
+def lenh_tu_postback(data):
+    """'menu=doanh_thu' -> 'doanh_thu' (None nếu không phải nút menu)."""
+    if (data or "").startswith("menu="):
+        lenh = data[5:]
+        return lenh if lenh in LENH_POSTBACK else None
+    return None
 
 
 def _nut(d1, d2, lenh, mau):
     return {"type": "box", "layout": "vertical", "flex": 1, "backgroundColor": mau, "cornerRadius": "12px",
             "paddingTop": "14px", "paddingBottom": "14px", "paddingStart": "6px", "paddingEnd": "6px",
-            "action": {"type": "message", "label": (d1 + " " + d2)[:20], "text": lenh},
+            "action": {"type": "postback", "label": (d1 + " " + d2)[:20], "data": "menu=" + lenh},
             "contents": [_t(d1, "md", "#FFFFFF", True, "center", wrap=False),
                          _t(d2, "md", "#FFFFFF", True, "center", wrap=False)]}
 
@@ -538,20 +548,20 @@ def build_the_menu():
 
 
 # Ô bấm trên ảnh menu 2500x1686: hàng trên 3 ô, hàng dưới 2 ô (khớp ảnh richmenu.jpg)
-MENU_O = [
-    ((0, 0, 833, 843), "DOANH THU LŨY KẾ"),
-    ((833, 0, 834, 843), "LN FRESH"),
-    ((1667, 0, 833, 843), "MTKM"),
-    ((0, 843, 1250, 843), "MỤC TIÊU TỪNG BẠN"),
-    ((1250, 843, 1250, 843), "KẾT QUẢ 7 NGÀY"),
+MENU_O = [  # (ô, nhãn, mã lệnh) — postback, bấm không hiện chữ trong khung chat
+    ((0, 0, 833, 843), "Doanh thu lũy kế", "doanh_thu"),
+    ((833, 0, 834, 843), "LN Fresh", "ln_fresh"),
+    ((1667, 0, 833, 843), "Mục tiêu ngày", "mtkm"),
+    ((0, 843, 1250, 843), "Mục tiêu từng bạn", "muc_tieu_tung_ban"),
+    ((1250, 843, 1250, 843), "Kết quả 7 ngày", "bay_ngay"),
 ]
-TEN_MENU = "TROLY menu 5 o"
+TEN_MENU = "TROLY menu 5 o"  # gõ CÀI MENU lại thì menu cũ cùng tên bị xoá, gắn menu mới
 ANH_MENU = os.path.join(os.path.dirname(os.path.abspath(__file__)), "richmenu.jpg")
 
 
 def cai_menu_cho(user_id, messaging_api, blob_api):
     """Tạo menu (xoá menu cũ cùng tên), tải ảnh, gắn cho đúng user_id. Trả về rich_menu_id."""
-    from linebot.v3.messaging import RichMenuRequest, RichMenuSize, RichMenuArea, RichMenuBounds, MessageAction
+    from linebot.v3.messaging import RichMenuRequest, RichMenuSize, RichMenuArea, RichMenuBounds, PostbackAction
     try:
         for m in (messaging_api.get_rich_menu_list().richmenus or []):
             if m.name == TEN_MENU:
@@ -560,8 +570,8 @@ def cai_menu_cho(user_id, messaging_api, blob_api):
         import traceback
         traceback.print_exc()
     areas = [RichMenuArea(bounds=RichMenuBounds(x=x, y=y, width=w, height=h),
-                          action=MessageAction(label=chu[:20], text=chu))
-             for (x, y, w, h), chu in MENU_O]
+                          action=PostbackAction(label=nhan[:20], data="menu=" + lenh))
+             for (x, y, w, h), nhan, lenh in MENU_O]
     rm = messaging_api.create_rich_menu(rich_menu_request=RichMenuRequest(
         size=RichMenuSize(width=2500, height=1686), selected=True, name=TEN_MENU,
         chat_bar_text="Menu", areas=areas))
