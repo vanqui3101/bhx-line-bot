@@ -1993,9 +1993,26 @@ def _gui_bang(messaging_api, reply_token, target_id, flex_message, chi_bang):
     except Exception:
         traceback.print_exc()
         messaging_api.push_message(PushMessageRequest(to=target_id, messages=[flex_message]))
+import threading as _threading
+_KHOA_DRIVE = _threading.Lock()
+def _nap_drive_truoc_khi_tra_bang():
+    """(10/11/2026) Trước khi trả bảng cần số POS (doanh thu, LN Fresh, mục tiêu ngày): kiểm tra thư mục Drive
+    của bot, có file POS mới (em vừa nạp) thì nạp luôn — không phải đợi lịch 4 tiếng."""
+    if not _KHOA_DRIVE.acquire(blocking=False):
+        return
+    try:
+        so = check_google_drive_for_new_files()
+        if so:
+            print(f"[MENU-DRIVE] nap them {so} file truoc khi tra bang")
+    except Exception:
+        traceback.print_exc()
+    finally:
+        _KHOA_DRIVE.release()
 def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id, chi_bang=False):
     """(09/11/2026) Trả thẻ cho 4 nút menu mới + lệnh CÀI MENU. (10/11) + "mtkm" cho nút bấm."""
     hom_nay = _ngay_hien_tai_str()
+    if lenh in ("doanh_thu", "ln_fresh", "mtkm"):
+        _nap_drive_truoc_khi_tra_bang()
     if lenh == "mtkm":
         flex_message = build_category_report_message()
         if flex_message is None:
