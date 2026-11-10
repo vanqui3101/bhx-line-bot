@@ -81,6 +81,7 @@ import mtkm_tracker
 import muc_tieu_ngay
 import muc_tieu_flex
 import gdrive_reader
+import menu_bot
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
@@ -1028,9 +1029,22 @@ except Exception:
 # Viết thành hàm riêng (không sửa handle_file_message) để không ảnh hưởng
 # tới tính năng gửi file tay đang chạy ổn định.
 # ---------------------------------------------------------------------------
+def _luu_file_ln_fresh(tmp_path, file_name):
+    """(09/11/2026) Đọc + lưu file LN Fresh (POS 3933). Trả về câu xác nhận."""
+    p = menu_bot.doc_ln_fresh(tmp_path, file_name or "")
+    moi = menu_bot.luu_ln_fresh(p, _now_vn_time_str())
+    gio = p.get("gio_xuat")
+    gio_txt = f" (xuất {gio[11:]} ngày {gio[8:10]}/{gio[5:7]})" if gio else ""
+    if not moi:
+        return f"Bot đã có file LN Fresh mới hơn, bỏ qua file này{gio_txt}."
+    t = p["tong"]
+    return (f"✅ Đã lưu LN FRESH{gio_txt}: LN {menu_bot._tr(t['ln'], True)}tr, chênh so TB 3 tháng "
+            f"{menu_bot._tr(t['chenh'], True)}tr.\nGõ \"LN FRESH\" để xem bảng.")
 def _process_drive_file(tmp_path, file_name):
     """Đọc + lưu 1 file Excel đã tải về từ Drive. Trả về (thanh_cong: bool, noi_dung_thong_bao: str)."""
     try:
+        if menu_bot.la_file_ln_fresh(tmp_path):  # (09/11/2026) file LN Fresh POS 3933
+            return True, "[Tự động từ Drive] " + _luu_file_ln_fresh(tmp_path, file_name)
         if is_ca_schedule_file(tmp_path):
             ca_data = read_ca_schedule(tmp_path)
             for ngay, roster in ca_data.items():
@@ -1145,6 +1159,10 @@ def handle_file_message(event):
             content = blob_api.get_message_content(message_id)
             with open(tmp_path, "wb") as f:
                 f.write(content)
+            # (09/11/2026) File LN Fresh (POS 3933 "Báo cáo hiệu quả bán Fresh siêu thị") cho nút LN FRESH
+            if menu_bot.la_file_ln_fresh(tmp_path):
+                reply_text(messaging_api, event.reply_token, _luu_file_ln_fresh(tmp_path, original_name))
+                return
             if is_ca_schedule_file(tmp_path):
                 ca_data = read_ca_schedule(tmp_path)
                 for ngay, roster in ca_data.items():
@@ -1513,6 +1531,19 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi chốt số: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # (09/11/2026) 5 NÚT MENU (chat riêng) — gõ đúng chữ trong nhóm cũng ra thẻ:
+        # DOANH THU LŨY KẾ · LN FRESH · MTKM (có sẵn) · MỤC TIÊU TỪNG BẠN · KẾT QUẢ 7 NGÀY · CÀI MENU
+        _lenh_menu = menu_bot.nhan_lenh(text_kd)
+        if _lenh_menu:
+            try:
+                _xu_ly_lenh_menu(_lenh_menu, event, messaging_api, api_client, source_type, target_id)
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo bảng: {e}")
                 except Exception:
                     traceback.print_exc()
             return
@@ -1931,6 +1962,47 @@ def push_text(messaging_api, target_id, text):
     messaging_api.push_message(
         PushMessageRequest(to=target_id, messages=[TextMessage(text=text)])
     )
+def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id):
+    """(09/11/2026) Trả thẻ cho 4 nút menu mới + lệnh CÀI MENU."""
+    hom_nay = _ngay_hien_tai_str()
+    if lenh == "cai_menu":
+        if source_type != "user":
+            notify_text(messaging_api, event.reply_token, target_id,
+                        "Menu chỉ hiện trong chat riêng với bot – anh vào chat riêng với TROLY rồi gõ CÀI MENU nhé.")
+            return
+        menu_bot.cai_menu_cho(event.source.user_id, messaging_api, MessagingApiBlob(api_client))
+        notify_text(messaging_api, event.reply_token, target_id,
+                    "✅ Đã gắn menu. Anh bấm \"Menu\" ở dưới khung chat (nếu chưa thấy thì thoát ra vào lại chat).")
+        return
+    if lenh == "doanh_thu":
+        kq = menu_bot.tinh_doanh_thu(hom_nay)
+        if kq is None:
+            notify_text(messaging_api, event.reply_token, target_id,
+                        "Tháng này chưa có file doanh thu chi tiết (POS 76) của ngày nào trước hôm nay anh ạ.")
+            return
+        bubble, alt = menu_bot.build_the_doanh_thu(kq), "Doanh thu lũy kế"
+    elif lenh == "ln_fresh":
+        p = menu_bot.lay_ln_fresh_moi_nhat()
+        if p is None:
+            notify_text(messaging_api, event.reply_token, target_id,
+                        "Bot chưa có file LN Fresh (POS 3933) anh ạ – anh gửi file vào chat hoặc bỏ vào thư mục Drive của bot.")
+            return
+        bubble, alt = menu_bot.build_the_ln_fresh(p), "LN Fresh"
+    elif lenh == "muc_tieu_tung_ban":
+        bubble, loi = menu_bot.build_the_muc_tieu_hom_nay(hom_nay)
+        if bubble is None:
+            notify_text(messaging_api, event.reply_token, target_id, loi)
+            return
+        alt = f"Mục tiêu từng bạn {hom_nay[8:]}/{hom_nay[5:7]}"
+    else:  # bay_ngay
+        bubble = menu_bot.build_the_7_ngay(menu_bot.tinh_7_ngay(hom_nay))
+        if bubble is None:
+            notify_text(messaging_api, event.reply_token, target_id,
+                        "Chưa có ngày nào đã CHỐT SỐ có mục tiêu từng bạn anh ạ.")
+            return
+        alt = "Kết quả 7 ngày gần nhất"
+    send_card_with_ack(messaging_api, event.reply_token, target_id,
+                       FlexMessage(alt_text=alt, contents=FlexContainer.from_dict(bubble)))
 def notify_text(messaging_api, reply_token, target_id, text):
     """Gửi text ưu tiên bằng REPLY (miễn phí, không tính hạn mức tin nhắn tháng
     của LINE OA); chỉ khi reply lỗi (token hết hạn...) mới thử push."""
