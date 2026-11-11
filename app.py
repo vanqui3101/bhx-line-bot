@@ -137,6 +137,21 @@ def _xoa_anh_gan_nhat(target_id):
 app = Flask(__name__)
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
+# (11/11/2026) GHI LOG KẾT QUẢ GỬI TIN LÊN LINE — để biết chắc LINE nhận hay từ chối
+# (VD hết hạn mức tin tháng: HTTP 429). Mỗi lần trả lời/gửi in 1 dòng [LINE-REPLY]/[LINE-PUSH].
+def _boc_log_gui_tin(ten_ham, nhan):
+    goc = getattr(MessagingApi, ten_ham)
+    def _goi(self, *args, **kwargs):
+        try:
+            kq = goc(self, *args, **kwargs)
+            print(f"[{nhan}] OK")
+            return kq
+        except Exception as e:
+            print(f"[{nhan}] LOI {getattr(e, 'status', '')} {str(getattr(e, 'body', '') or e)[:300]}")
+            raise
+    setattr(MessagingApi, ten_ham, _goi)
+_boc_log_gui_tin("reply_message", "LINE-REPLY")
+_boc_log_gui_tin("push_message", "LINE-PUSH")
 # ---- Lệnh nhận diện (khớp cả khi gõ trong nhóm, không phân biệt hoa/thường) ----
 DT_COMMAND_PATTERN = re.compile(
     r"^\s*(dt|b[aá]o\s*c[aá]o\s*doanh\s*thu)\s*$", re.IGNORECASE
