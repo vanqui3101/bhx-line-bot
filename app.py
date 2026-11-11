@@ -1552,8 +1552,25 @@ def handle_text_message(event):
         # (09/11/2026) 5 NÚT MENU (chat riêng) — gõ đúng chữ trong nhóm cũng ra thẻ:
         # DOANH THU LŨY KẾ · LN FRESH · MTKM (có sẵn) · MỤC TIÊU TỪNG BẠN · KẾT QUẢ 7 NGÀY · CÀI MENU
         # (10/11/2026) + "MENU": thẻ 5 nút bấm trong nhóm
+        # (11/11/2026) "LỊCH SỬ MENU [dd/mm | 7 NGÀY]" — ai bấm menu; chỉ trả trong chat riêng, nhóm thì im lặng
+        _ls_menu = menu_bot.doc_lenh_lich_su(text_kd, _ngay_hien_tai_str())
+        if _ls_menu:
+            if source_type != "user":
+                return
+            try:
+                _tu, _den, _kieu_ls = _ls_menu
+                _rows = menu_bot.lay_lich_su(_tu, _den)
+                _b = (menu_bot.build_the_lich_su_7_ngay(_tu, _den, _rows) if _kieu_ls == "7ngay"
+                      else menu_bot.build_the_lich_su_ngay(_tu, _rows))
+                reply_flex(messaging_api, event.reply_token, "Lịch sử bấm menu", _b)
+            except Exception as e:
+                traceback.print_exc()
+                notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi xem lịch sử menu: {e}")
+            return
         _lenh_menu = menu_bot.nhan_lenh(text_kd)
         if _lenh_menu:
+            if _lenh_menu != "cai_menu":
+                _ghi_lich_su_menu(messaging_api, event, _lenh_menu, "gõ")
             try:
                 _xu_ly_lenh_menu(_lenh_menu, event, messaging_api, api_client, source_type, target_id)
             except Exception as e:
@@ -1978,6 +1995,26 @@ def push_text(messaging_api, target_id, text):
     messaging_api.push_message(
         PushMessageRequest(to=target_id, messages=[TextMessage(text=text)])
     )
+def _ghi_lich_su_menu(messaging_api, event, nut, kieu):
+    """(11/11/2026) Ghi ai bấm/gõ lệnh menu, ngày giờ — lỗi ở đây không ảnh hưởng việc trả bảng."""
+    try:
+        uid = getattr(event.source, "user_id", None)
+        ten = storage.get_ten_ngan_tu_user_id(uid) if uid else None
+        if not ten and uid:
+            try:
+                if event.source.type == "group":
+                    ten = messaging_api.get_group_member_profile(event.source.group_id, uid).display_name
+                else:
+                    ten = messaging_api.get_profile(uid).display_name
+            except Exception:
+                ten = None
+        if not ten:
+            ten = "Chưa rõ" + (f" (…{uid[-4:]})" if uid else "")
+        now = _now_vn_datetime()
+        menu_bot.ghi_bam_menu(now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), uid, ten, nut, kieu,
+                              "Nhóm" if event.source.type == "group" else "Riêng")
+    except Exception:
+        traceback.print_exc()
 @handler.add(PostbackEvent)
 def handle_postback(event):
     """(10/11/2026) Bấm ô trong MENU (thẻ trong nhóm hoặc menu chat riêng): không hiện chữ trong khung chat,
@@ -1990,6 +2027,7 @@ def handle_postback(event):
         source_type = event.source.type
         target_id = event.source.group_id if source_type == "group" else getattr(event.source, "user_id", None)
         print(f"[MENU-POSTBACK] {lenh} tu {source_type}")
+        _ghi_lich_su_menu(messaging_api, event, lenh, "bấm")
         try:
             _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id, chi_bang=True)
         except Exception as e:

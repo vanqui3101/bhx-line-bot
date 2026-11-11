@@ -580,3 +580,113 @@ def cai_menu_cho(user_id, messaging_api, blob_api):
                                      _headers={"Content-Type": "image/jpeg"})
     messaging_api.link_rich_menu_id_to_user(user_id, rm.rich_menu_id)
     return rm.rich_menu_id
+
+
+# ---------------------------------------------------------------------------
+# (11/11/2026) LỊCH SỬ BẤM MENU — ai bấm ô nào, ngày giờ nào (chỉ anh Quí xem trong chat riêng)
+#   "LỊCH SỬ MENU"         -> hôm nay
+#   "LỊCH SỬ MENU dd/mm"   -> 1 ngày
+#   "LỊCH SỬ MENU 7 NGÀY"  -> tổng 7 ngày theo từng người
+# ---------------------------------------------------------------------------
+TEN_NUT = {"doanh_thu": "Doanh thu lũy kế", "ln_fresh": "LN Fresh", "mtkm": "Mục tiêu ngày",
+           "muc_tieu_tung_ban": "Mục tiêu từng bạn", "bay_ngay": "Kết quả 7 ngày", "menu": "Mở MENU"}
+_LENH_LICH_SU = re.compile(r"\s*lich\s*su\s*(?:bam\s*)?menu(?:\s+(?:(\d{1,2})\s*/\s*(\d{1,2})|(7)\s*ngay))?\s*")
+
+
+def _conn_log():
+    conn = storage._connect()
+    conn.execute("CREATE TABLE IF NOT EXISTS menu_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ngay TEXT NOT NULL, "
+                 "gio TEXT, user_id TEXT, ten TEXT, nut TEXT, kieu TEXT, noi TEXT)")
+    return conn
+
+
+def ghi_bam_menu(ngay, gio, user_id, ten, nut, kieu, noi):
+    """kieu: 'bấm' (bấm ô) | 'gõ' (gõ chữ lệnh); noi: 'Nhóm' | 'Riêng'."""
+    conn = _conn_log()
+    with conn:
+        conn.execute("INSERT INTO menu_log (ngay, gio, user_id, ten, nut, kieu, noi) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     (ngay, gio, user_id, ten, nut, kieu, noi))
+    conn.close()
+
+
+def lay_lich_su(tu, den):
+    conn = _conn_log()
+    rows = conn.execute("SELECT ngay, gio, user_id, ten, nut, kieu, noi FROM menu_log WHERE ngay BETWEEN ? AND ? "
+                        "ORDER BY ngay, gio, id", (tu, den)).fetchall()
+    conn.close()
+    return [dict(zip(("ngay", "gio", "user_id", "ten", "nut", "kieu", "noi"), r)) for r in rows]
+
+
+def doc_lenh_lich_su(text_kd, hom_nay_str):
+    """Trả về (tu, den, kieu) với kieu 'ngay' | '7ngay'; None nếu không phải lệnh."""
+    m = _LENH_LICH_SU.fullmatch(text_kd or "")
+    if not m:
+        return None
+    hn = _d(hom_nay_str)
+    if m.group(3):
+        return _s(hn - timedelta(days=6)), _s(hn), "7ngay"
+    if m.group(1):
+        d = _s(hn.replace(month=int(m.group(2)), day=int(m.group(1))))
+        return d, d, "ngay"
+    return _s(hn), _s(hn), "ngay"
+
+
+def build_the_lich_su_ngay(ngay, rows, toi_da=45):
+    dn = _d(ngay)
+    tieu_de = f"LỊCH SỬ BẤM MENU · {dn.strftime('%d/%m')}"
+    if not rows:
+        return _bubble(tieu_de, ["Chỉ anh xem được trong chat riêng"],
+                       [_ghi_chu("Ngày này chưa ai bấm menu.")])
+    nguoi = {}
+    for r in rows:
+        nguoi[r["ten"]] = nguoi.get(r["ten"], 0) + 1
+    w = (13, 27, 38, 14)
+    ds = [_hang([_o_tieu_de(["Giờ"], w[0], "start"), _o_tieu_de(["Ai bấm"], w[1], "start"),
+                 _o_tieu_de(["Ô"], w[2], "start"), _o_tieu_de(["Ở"], w[3], "end")], MTKM_HL_BG, "4px")]
+    hien = rows[-toi_da:]
+    for r in hien:
+        ds.append(_hang([_t(r["gio"][:5], "xs", GRAY, False, flex=w[0], wrap=False),
+                         _t(r["ten"], "xs", MTKM_GOLD_TEXT, True, flex=w[1], wrap=False),
+                         _t(TEN_NUT.get(r["nut"], r["nut"]) + (" (gõ)" if r["kieu"] == "gõ" else ""), "xs", BLACK,
+                            flex=w[2], wrap=False),
+                         _t(r["noi"], "xs", GRAY, False, "end", w[3], wrap=False)], pad="3px"))
+    body = [_sec(f"{len(rows)} LẦN · {len(nguoi)} NGƯỜI"), _bang(ds)]
+    if len(rows) > len(hien):
+        body.append(_ghi_chu(f"Chỉ hiện {toi_da} lần gần nhất trong ngày."))
+    top = sorted(nguoi.items(), key=lambda x: -x[1])
+    body.append(_nhan_xet(", ".join(f"{t} {n} lần" for t, n in top[:6]) + "."))
+    return _bubble(tieu_de, ["Ai bấm ô nào, mấy giờ · chỉ anh xem được trong chat riêng"], body)
+
+
+def build_the_lich_su_7_ngay(tu, den, rows):
+    d1, d2 = _d(tu), _d(den)
+    tieu_de = f"LỊCH SỬ BẤM MENU · {d1.strftime('%d/%m')} – {d2.strftime('%d/%m')}"
+    if not rows:
+        return _bubble(tieu_de, ["Chỉ anh xem được trong chat riêng"], [_ghi_chu("7 ngày qua chưa ai bấm menu.")])
+    nguoi = {}
+    for r in rows:
+        x = nguoi.setdefault(r["ten"], {"lan": 0, "ngay": set(), "nut": {}, "cuoi": ""})
+        x["lan"] += 1
+        x["ngay"].add(r["ngay"])
+        x["nut"][r["nut"]] = x["nut"].get(r["nut"], 0) + 1
+        x["cuoi"] = max(x["cuoi"], r["ngay"] + " " + (r["gio"] or ""))
+    w = (25, 11, 11, 31, 22)
+    ds = [_hang([_o_tieu_de(["Ai bấm"], w[0], "start"), _o_tieu_de(["Lần"], w[1], "end"),
+                 _o_tieu_de(["Số", "ngày"], w[2], "end"), _o_tieu_de(["Bấm nhiều nhất"], w[3], "start"),
+                 _o_tieu_de(["Lần cuối"], w[4], "end")], MTKM_HL_BG, "4px")]
+    for ten, x in sorted(nguoi.items(), key=lambda kv: -kv[1]["lan"]):
+        nut = max(x["nut"].items(), key=lambda kv: kv[1])[0]
+        cuoi = x["cuoi"]
+        ds.append(_hang([_t(ten, "xs", MTKM_GOLD_TEXT, True, flex=w[0], wrap=False),
+                         _t(str(x["lan"]), "sm", BLACK, True, "end", w[1]),
+                         _t(str(len(x["ngay"])), "sm", GRAY, False, "end", w[2]),
+                         _t(TEN_NUT.get(nut, nut), "xs", BLACK, flex=w[3], wrap=False),
+                         _t(f"{cuoi[8:10]}/{cuoi[5:7]} {cuoi[11:16]}", "xs", GRAY, False, "end", w[4], wrap=False)],
+                        pad="3px"))
+    dem_nut = {}
+    for r in rows:
+        dem_nut[r["nut"]] = dem_nut.get(r["nut"], 0) + 1
+    nx = "Ô được bấm nhiều nhất: " + ", ".join(f"{TEN_NUT.get(k, k)} {v} lần"
+                                              for k, v in sorted(dem_nut.items(), key=lambda kv: -kv[1])[:3]) + "."
+    return _bubble(tieu_de, [f"{len(rows)} lần bấm · {len(nguoi)} người · chỉ anh xem được trong chat riêng"],
+                   [_sec("THEO TỪNG NGƯỜI"), _bang(ds), _nhan_xet(nx)])
