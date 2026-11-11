@@ -537,14 +537,17 @@ def _nut(d1, d2, lenh, mau):
 
 
 def build_the_menu():
-    n = [_nut(*x) for x in NUT_MENU]
+    """(11/11/2026) Không tiêu đề, không dòng chữ nhỏ. Bố cục: 2 ô trái – 2 ô phải, 1 ô ở giữa bên dưới."""
+    n = [_nut(*x) for x in NUT_MENU]  # 0 Doanh thu, 1 LN Fresh, 2 Mục tiêu ngày, 3 Từng bạn, 4 Kết quả 7 ngày
     hang = lambda ds: {"type": "box", "layout": "horizontal", "spacing": "8px", "contents": ds}
+    dem = {"type": "filler"}
+    giua = dict(n[4], flex=2)
     return {"type": "bubble", "size": "mega",
-            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#E3F6EA", "paddingAll": "14px",
-                       "contents": [_t("MENU TROLY", "lg", "#0E7A3E", True),
-                                    _t("Bấm 1 ô, bot trả bảng vào nhóm", "xs", "#3F7D57")]},
             "body": {"type": "box", "layout": "vertical", "spacing": "8px", "paddingAll": "12px",
-                     "backgroundColor": "#F2FBF5", "contents": [hang(n[:3]), hang(n[3:])]}}
+                     "backgroundColor": "#F2FBF5",
+                     "contents": [hang([n[0], n[2]]), hang([n[1], n[3]]),
+                                  {"type": "box", "layout": "horizontal", "spacing": "8px",
+                                   "contents": [dict(dem, flex=1), giua, dict(dem, flex=1)]}]}}
 
 
 # Ô bấm trên ảnh menu 2500x1686: hàng trên 3 ô, hàng dưới 2 ô (khớp ảnh richmenu.jpg)

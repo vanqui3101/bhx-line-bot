@@ -2075,7 +2075,7 @@ def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target
         _gui_bang(messaging_api, event.reply_token, target_id, flex_message, chi_bang)
         return
     if lenh == "menu":  # (10/11/2026) thẻ 5 nút, gõ ở nhóm hay chat riêng đều được
-        reply_flex(messaging_api, event.reply_token, "Menu TROLY", menu_bot.build_the_menu())
+        reply_flex(messaging_api, event.reply_token, "Menu", menu_bot.build_the_menu())
         return
     if lenh == "cai_menu":
         if source_type != "user":
