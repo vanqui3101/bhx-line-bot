@@ -2090,7 +2090,7 @@ def _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target
         kq = menu_bot.tinh_doanh_thu(hom_nay)
         if kq is None:
             notify_text(messaging_api, event.reply_token, target_id,
-                        "Tháng này chưa có file doanh thu chi tiết (POS 76) của ngày nào trước hôm nay anh ạ.")
+                        "Tháng này chưa có file doanh thu theo siêu thị (POS 145) của ngày nào trước hôm nay anh ạ – anh nhắn em \"nạp số\" để em xuất giúp.")
             return
         bubble, alt = menu_bot.build_the_doanh_thu(kq), "Doanh thu lũy kế"
     elif lenh == "ln_fresh":

@@ -2,8 +2,8 @@
 menu_bot.py - (09/11/2026) MENU NÚT BẤM trong chat riêng với bot + các thẻ mới.
 
 5 nút (gõ đúng chữ này trong nhóm cũng ra thẻ):
-  1) "DOANH THU LŨY KẾ"  : doanh thu siêu thị (Fresh/FMCG) lũy kế tới HẾT HÔM QUA + dự kiến cả tháng,
-                           kèm lũy kế các mục tiêu KM từ đầu tháng
+  1) "DOANH THU LŨY KẾ"  : doanh thu siêu thị OFFLINE / ONLINE (POS 145) hôm qua + lũy kế tới HẾT HÔM QUA
+                           + dự kiến cả tháng + từng ngày, kèm lũy kế các mục tiêu KM (POS 76) từ đầu tháng
   2) "LN FRESH"          : lợi nhuận 7 ngành Fresh theo file POS 3933 mới nhất anh gửi / bỏ Drive
   3) "MTKM"              : (thẻ có sẵn) mục tiêu ngày cả siêu thị
   4) "MỤC TIÊU TỪNG BẠN" : mục tiêu hôm nay của từng bạn thu ngân + fresh (theo bài phân line)
@@ -21,7 +21,6 @@ from datetime import datetime, timedelta
 import storage
 import mtkm_tracker
 import muc_tieu_ngay
-import thuong_freshfmcg
 from muc_tieu_ngay import MUC_THU_NGAN, MUC_FRESH, pct_txt, _pct
 from muc_tieu_flex import (_bubble, _sec, _hang, _t, _o_tieu_de, _hop_canh_bao, _mau_pct, NEN_TONG, NEN_XANH,
                            NEN_DO, VANG)
@@ -80,19 +79,51 @@ def _nhan_xet(text):
 
 # ---------------------------------------------------------------------------
 # 1. DOANH THU LŨY KẾ (tới hết hôm qua)
+# (11/11/2026) Chốt với anh Quí: doanh thu lấy từ POS 145 "Doanh thu theo siêu thị"
+# (bảng records: Doanh thu offline / Doanh thu Online CHƯA VAT, Tổng số bill, Tổng số bill online).
+# Mục tiêu ngày vẫn từ POS 76, LN Fresh từ POS 3933.
 # ---------------------------------------------------------------------------
-_FRESH_THAP = {x.lower() for x in thuong_freshfmcg.FRESH_NGANH_HANG}
+MA_ST = "8363"
+SO_NGAY_BANG = 10  # bảng từng ngày: 10 ngày gần nhất (giữ thẻ gọn, không vượt giới hạn dung lượng của LINE)
+KENH = [("Offline", "off"), ("Online", "onl"), ("Tổng", "tong")]
 
 
-def _fresh_fmcg(payload):
-    """Tách doanh thu 1 ngày (file POS 76 đã lưu) thành Fresh / FMCG theo cột Ngành hàng.
-    So tên ngành KHÔNG phân biệt hoa/thường (file T11 ghi "Rau củ các loại", trước ghi "Rau Củ Các Loại")."""
-    nh = (payload or {}).get("nganh_hang") or {}
-    items = nh.get("items") if isinstance(nh, dict) and "items" in nh else \
-        [{"ten": k, "thanh_tien": v} for k, v in (nh.items() if isinstance(nh, dict) else [])]
-    fresh = sum(i.get("thanh_tien") or 0 for i in items if str(i.get("ten", "")).strip().lower() in _FRESH_THAP)
-    tong = sum(i.get("thanh_tien") or 0 for i in items)
-    return {"fresh_dt": fresh, "fmcg_dt": tong - fresh}
+def _ma(v):
+    return str(v if v is not None else "").strip().split(".")[0]
+
+
+def _doc_dt_145(tu, den):
+    """{ngay: {off, onl, tong, bill, bill_onl}} của siêu thị 8363 trong [tu, den] (từ các file POS 145 đã nạp).
+    Nếu bảng không có dòng nào mã 8363 thì cộng hết (giống lệnh DTDK cũ)."""
+    conn = storage._connect()
+    try:
+        ds = conn.execute("SELECT ngay, ma_st, dt_offline, dt_online, bill_offline, bill_online FROM records "
+                          "WHERE ngay >= ? AND ngay <= ?", (tu, den)).fetchall()
+    finally:
+        conn.close()
+    co_st = any(_ma(r[1]) == MA_ST for r in ds)
+    out = {}
+    for ngay, ma, off, onl, bill, bill_onl in ds:
+        if co_st and _ma(ma) != MA_ST:
+            continue
+        o = out.setdefault(str(ngay)[:10], {"off": 0.0, "onl": 0.0, "bill": 0.0, "bill_onl": 0.0})
+        o["off"] += off or 0
+        o["onl"] += onl or 0
+        o["bill"] += bill or 0
+        o["bill_onl"] += bill_onl or 0
+    for o in out.values():
+        o["tong"] = o["off"] + o["onl"]
+    return out
+
+
+def _target_thang():
+    """Target năm (lệnh DTDK) chia đều 12 tháng: (gốc, +15%)."""
+    try:
+        import dtdk_report
+        g = dtdk_report.TARGET_NAM / 12
+        return g, g * (1 + dtdk_report.TARGET_TANG_THEM_PCT)
+    except Exception:
+        return None, None
 
 
 def tinh_doanh_thu(hom_nay_str):
@@ -100,38 +131,37 @@ def tinh_doanh_thu(hom_nay_str):
     dau = hq.replace(day=1)
     so_ngay_thang = calendar.monthrange(hq.year, hq.month)[1]
     dau_truoc = (dau - timedelta(days=1)).replace(day=1)
-    rows = {n: _fresh_fmcg(p) for n, p in storage.get_category_reports_range(_s(dau_truoc), _s(hq)).items()}
+    n_truoc = calendar.monthrange(dau_truoc.year, dau_truoc.month)[1]
+    rows = _doc_dt_145(_s(dau_truoc), _s(hq))
     ds = [dau + timedelta(days=i) for i in range(hq.day)]
     co = [x for x in ds if _s(x) in rows]
     if not co:
         return None
     so_ngay = len(co)
     # cùng kỳ tháng trước: chỉ so những ngày (theo số ngày trong tháng) có dữ liệu ở CẢ 2 tháng
-    n_truoc = calendar.monthrange(dau_truoc.year, dau_truoc.month)[1]
-    cap = [(x, dau_truoc.replace(day=x.day)) for x in co if x.day <= n_truoc and _s(dau_truoc.replace(day=x.day)) in rows]
-
-    def _nhom(ten, khoa, base):
-        lk = sum(rows[_s(x)][khoa] or 0 for x in co) if khoa else None
-        return {"ten": ten, "khoa": khoa, "base": base, "lk": lk}
-
-    nhom = [_nhom("Fresh", "fresh_dt", thuong_freshfmcg.BASE_FRESH),
-            _nhom("FMCG", "fmcg_dt", thuong_freshfmcg.BASE_FMCG)]
-    nhom.append({"ten": "Tổng", "khoa": None, "base": sum(n["base"] for n in nhom), "lk": sum(n["lk"] for n in nhom)})
-    for n in nhom:
-        khoas = [n["khoa"]] if n["khoa"] else ["fresh_dt", "fmcg_dt"]
-        n["tb"] = n["lk"] / so_ngay
-        n["du_kien"] = n["tb"] * so_ngay_thang
-        n["pct_base"] = n["du_kien"] / n["base"] * 100 if n["base"] else None
+    cap = [(x, dau_truoc.replace(day=x.day)) for x in co
+           if x.day <= n_truoc and _s(dau_truoc.replace(day=x.day)) in rows]
+    nhom = []
+    for ten, k in KENH:
+        lk = sum(rows[_s(x)][k] for x in co)
+        n = {"ten": ten, "khoa": k, "hq": rows[_s(hq)][k] if _s(hq) in rows else None,
+             "lk": lk, "tb": lk / so_ngay, "du_kien": lk / so_ngay * so_ngay_thang, "pct_ck": None}
         if cap:
-            nay = sum(rows[_s(a)][k] or 0 for a, _b in cap for k in khoas)
-            truoc = sum(rows[_s(b)][k] or 0 for _a, b in cap for k in khoas)
+            nay = sum(rows[_s(a)][k] for a, _b in cap)
+            truoc = sum(rows[_s(b)][k] for _a, b in cap)
             n["pct_ck"] = (nay / truoc * 100 - 100) if truoc else None
-        else:
-            n["pct_ck"] = None
-    kq_km = mtkm_tracker.tinh_mtkm(_s(hq))
+        nhom.append(n)
+    ngay_tt = [dau_truoc + timedelta(days=i) for i in range(n_truoc)]
+    tong_tt = sum(rows[_s(x)]["tong"] for x in ngay_tt) if all(_s(x) in rows for x in ngay_tt) else None
+    tg, tg15 = _target_thang()
     return {"hq": _s(hq), "dau": _s(dau), "so_ngay_thang": so_ngay_thang, "so_ngay": so_ngay,
             "thieu": [x.strftime("%d/%m") for x in ds if _s(x) not in rows], "nhom": nhom,
-            "ck": (cap[0][1].strftime("%d"), cap[-1][1].strftime("%d/%m")) if cap else None, "km": kq_km}
+            "ck": (cap[0][1].strftime("%d"), cap[-1][1].strftime("%d/%m")) if cap else None,
+            "bill_tb": sum(rows[_s(x)]["bill"] for x in co) / so_ngay,
+            "bill_onl_tb": sum(rows[_s(x)]["bill_onl"] for x in co) / so_ngay,
+            "tung_ngay": [dict(rows[_s(x)], ngay=_s(x)) for x in co[-SO_NGAY_BANG:]],
+            "thang_truoc": tong_tt, "target": tg, "target15": tg15,
+            "km": mtkm_tracker.tinh_mtkm(_s(hq))}
 
 
 def _mau_tien_do(p, can):
@@ -140,31 +170,78 @@ def _mau_tien_do(p, can):
     return GREEN if p >= can - 1e-9 else (VANG if p >= can * 0.8 else RED)
 
 
+def _pct1(v):
+    return f"{v:.1f}%".replace(".", ",")
+
+
 def build_the_doanh_thu(kq):
     hq, dau = _d(kq["hq"]), _d(kq["dau"])
+    nhom = {n["khoa"]: n for n in kq["nhom"]}
+    tong = nhom["tong"]
     body = []
     if kq["thieu"]:
-        body.append(_hop_canh_bao([f"⚠ Chưa có file POS ngày {', '.join(kq['thieu'])} – lũy kế đang thấp hơn thực tế, "
-                                   "dự kiến tháng tính theo TB các ngày đã có"]))
-    # --- bảng doanh thu ---
-    w = (20, 20, 18, 22, 16)
-    rows = [_hang([_o_tieu_de(["Nhóm"], w[0], "start"), _o_tieu_de(["Lũy kế"], w[1], "end"),
-                   _o_tieu_de(["TB", "/ngày"], w[2], "end"), _o_tieu_de(["Dự kiến", "tháng"], w[3], "end"),
-                   _o_tieu_de(["So", "base"], w[4], "end")], MTKM_HL_BG, "4px")]
+        body.append(_hop_canh_bao([f"⚠ Chưa có số POS 145 ngày {', '.join(kq['thieu'])} – dự kiến tháng tính theo "
+                                   "TB các ngày đã có"]))
+    # --- bảng tổng: hôm qua / lũy kế / TB / dự kiến ---
+    w = (18, 19, 21, 19, 23)
+    rows = [_hang([_o_tieu_de(["Kênh"], w[0], "start"), _o_tieu_de(["Hôm qua", hq.strftime("%d/%m")], w[1], "end"),
+                   _o_tieu_de(["Lũy kế"], w[2], "end"), _o_tieu_de(["TB", "/ngày"], w[3], "end"),
+                   _o_tieu_de(["Dự kiến", "tháng"], w[4], "end")], MTKM_HL_BG, "4px")]
     for n in kq["nhom"]:
-        tong = n["khoa"] is None
+        la_tong = n["khoa"] == "tong"
         rows.append(_hang([_t(n["ten"], "xs", MTKM_GOLD_TEXT, True, flex=w[0]),
-                           _t(_tr(n["lk"]), "sm", BLACK, True, "end", w[1]),
-                           _t(_tr(n["tb"]), "sm", GRAY, False, "end", w[2]),
-                           _t(_tr(n["du_kien"]), "sm", BLACK, tong, "end", w[3]),
-                           _t(pct_txt(n["pct_base"]), "sm", _mau_pct(n["pct_base"]), True, "end", w[4])],
-                          NEN_TONG if tong else None, "4px"))
+                           _t(_tr(n["hq"]) if n["hq"] is not None else "–", "sm", BLACK, la_tong, "end", w[1]),
+                           _t(_tr(n["lk"]), "sm", BLACK, True, "end", w[2]),
+                           _t(_tr(n["tb"]), "sm", GRAY, False, "end", w[3]),
+                           _t(_tr(n["du_kien"]), "sm", BLACK, la_tong, "end", w[4])],
+                          NEN_TONG if la_tong else None, "4px"))
     body += [_sec("DOANH THU SIÊU THỊ (chưa VAT, triệu)"), _bang(rows)]
+    ghi = [f"Online chiếm {_pct1(nhom['onl']['lk'] / tong['lk'] * 100 if tong['lk'] else 0)} lũy kế · "
+           f"bill TB/ngày {kq['bill_tb']:.0f} (online {kq['bill_onl_tb']:.0f})"]
     if kq["ck"]:
-        ck = " · ".join(f"{n['ten']} {('+' if n['pct_ck'] >= 0 else '−')}{abs(n['pct_ck']):.1f}%".replace(".", ",")
-                        for n in kq["nhom"] if n["pct_ck"] is not None)
-        body.append(_ghi_chu(f"So cùng kỳ tháng trước ({kq['ck'][0]}–{kq['ck'][1]}): {ck}"))
-    # --- bảng lũy kế mục tiêu KM ---
+        ghi.append(f"So cùng kỳ tháng trước ({kq['ck'][0]}–{kq['ck'][1]}): " + " · ".join(
+            f"{n['ten']} {('+' if n['pct_ck'] >= 0 else '−')}{_pct1(abs(n['pct_ck']))}"
+            for n in kq["nhom"] if n["pct_ck"] is not None))
+    if kq["target"]:
+        ghi.append(f"Target năm chia đều: {_tr(kq['target'])}tr/tháng (+15%: {_tr(kq['target15'])}tr)")
+    body += [_ghi_chu(x) for x in ghi]
+    # --- từng ngày ---
+    tn = kq["tung_ngay"]
+    w3 = (16, 22, 20, 24, 14)
+    r3 = [_hang([_o_tieu_de(["Ngày"], w3[0], "start"), _o_tieu_de(["Offline"], w3[1], "end"),
+                 _o_tieu_de(["Online"], w3[2], "end"), _o_tieu_de(["Tổng"], w3[3], "end"),
+                 _o_tieu_de(["Bill"], w3[4], "end")], MTKM_HL_BG, "4px")]
+    cao = max(tn, key=lambda r: r["tong"])["ngay"] if len(tn) > 1 else None
+    thap = min(tn, key=lambda r: r["tong"])["ngay"] if len(tn) > 1 else None
+    for r in tn:
+        mau = GREEN if r["ngay"] == cao else (RED if r["ngay"] == thap else BLACK)
+        r3.append(_hang([_t(_d(r["ngay"]).strftime("%d/%m"), "xs", MTKM_GOLD_TEXT, True, flex=w3[0]),
+                         _t(_tr(r["off"]), "xs", BLACK, False, "end", w3[1]),
+                         _t(_tr(r["onl"]), "xs", GRAY, False, "end", w3[2]),
+                         _t(_tr(r["tong"]), "xs", mau, True, "end", w3[3]),
+                         _t(f"{r['bill']:.0f}", "xs", GRAY, False, "end", w3[4])], None, "3px"))
+    tieu_de_ngay = "TỪNG NGÀY" if len(tn) >= kq["so_ngay"] else f"{len(tn)} NGÀY GẦN NHẤT"
+    body += [_sec(f"{tieu_de_ngay} (triệu)"), _bang(r3),
+             _ghi_chu("Xanh = ngày cao nhất · đỏ = ngày thấp nhất · Bill = Tổng số bill (POS 145)")]
+    # --- nhận xét doanh thu ---
+    nx = f"Dự kiến cả tháng {_tr(tong['du_kien'])}tr"
+    if kq["target"]:
+        nx += (f" ≈ {pct_txt(tong['du_kien'] / kq['target'] * 100)} target gốc"
+               f" / {pct_txt(tong['du_kien'] / kq['target15'] * 100)} target +15%")
+    if kq["thang_truoc"]:
+        nx += f", {'cao' if tong['du_kien'] >= kq['thang_truoc'] else 'thấp'} hơn cả tháng trước " \
+              f"({_tr(kq['thang_truoc'])}tr)"
+    if tong["pct_ck"] is not None:
+        nx += f"; so cùng kỳ {'+' if tong['pct_ck'] >= 0 else '−'}{_pct1(abs(tong['pct_ck']))}"
+    if tong["hq"] is not None and tong["tb"]:
+        lech = tong["hq"] / tong["tb"] * 100 - 100
+        nx += f"; hôm qua {_tr(tong['hq'])}tr, {'trên' if lech >= 0 else 'dưới'} TB tháng {_pct1(abs(lech))}"
+    body.append(_nhan_xet(nx + "."))
+    the_dt = _bubble(f"DOANH THU · THÁNG {hq.month}",
+                     [f"Lũy kế {dau.strftime('%d/%m')} – {hq.strftime('%d/%m')} (hết ngày hôm qua) · "
+                      f"{kq['so_ngay']}/{kq['so_ngay_thang']} ngày có số · nguồn POS 145"], body)
+    # --- thẻ 2: lũy kế mục tiêu KM (POS 76) — tách thẻ riêng (vuốt sang) vì 1 thẻ LINE tối đa ~30KB ---
+    body = []
     km = kq["km"]
     w2 = (30, 18, 18, 16, 18)
     r2 = [_hang([_o_tieu_de(["Mục"], w2[0], "start"), _o_tieu_de(["MT", "tháng"], w2[1], "end"),
@@ -188,21 +265,18 @@ def build_the_doanh_thu(kq):
                          _t(pct_txt(p), "sm", _mau_tien_do(p, can), True, "end", w2[3]),
                          _t(_so(max(mt - d["luy_ke"], 0), dv), "sm", BLACK, False, "end", w2[4])],
                         NEN_TONG if d.get("la_tong") else None, "4px"))
-    body += [_sec(f"LŨY KẾ MỤC TIÊU KM · cần {km['pct_tien_do']:.1f}%".replace(".", ",")), _bang(r2),
+    body += [_sec(f"MỤC TIÊU KM · cần {km['pct_tien_do']:.1f}%".replace(".", ",")), _bang(r2),
              _ghi_chu("Màu: xanh = theo kịp tiến độ · vàng = hơi chậm · đỏ = chậm nhiều · * thi đua theo tuần "
-                      "(% và MT tính theo tuần) · đơn vị: triệu, trứng vỉ, heo kg, C2 lốc, 888 túi, kem đánh răng tuýp · "
-                      "So base = dự kiến tháng ÷ base thưởng (Fresh 373tr · FMCG 1.056tr)")]
-    tong = kq["nhom"][-1]
-    nx = f"Dự kiến cả tháng {_tr(tong['du_kien'])}tr ({pct_txt(tong['pct_base'])} base)"
-    if tong["pct_ck"] is not None:
-        nx += f", {'cao' if tong['pct_ck'] >= 0 else 'thấp'} hơn cùng kỳ {abs(tong['pct_ck']):.1f}%".replace(".", ",")
+                      "(% và MT tính theo tuần) · đơn vị: triệu, trứng vỉ, heo kg, C2 lốc, 888 túi, kem đánh răng tuýp")]
     if cham:
         cham.sort()
-        nx += "; chậm nhiều: " + ", ".join(f"{t} {pct_txt(p)} (cần {can:.0f}%)" for _r, t, p, can in cham[:3])
-    body.append(_nhan_xet(nx + "."))
-    return _bubble(f"DOANH THU · THÁNG {hq.month}",
-                   [f"Lũy kế {dau.strftime('%d/%m')} – {hq.strftime('%d/%m')} (hết ngày hôm qua) · "
-                    f"{kq['so_ngay']}/{kq['so_ngay_thang']} ngày có số"], body)
+        body.append(_nhan_xet("Chậm nhiều: " + ", ".join(f"{t} {pct_txt(p)} (cần {can:.0f}%)"
+                                                          for _r, t, p, can in cham[:4]) + "."))
+    else:
+        body.append(_nhan_xet("Các mục KM đều theo kịp hoặc chỉ hơi chậm so với tiến độ."))
+    the_km = _bubble(f"LŨY KẾ MỤC TIÊU KM · THÁNG {hq.month}",
+                     [f"{dau.strftime('%d/%m')} – {hq.strftime('%d/%m')} (hết ngày hôm qua) · nguồn POS 76"], body)
+    return {"type": "carousel", "contents": [the_dt, the_km]}
 
 
 # ---------------------------------------------------------------------------
