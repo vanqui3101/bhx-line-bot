@@ -281,19 +281,133 @@ def health():
 @app.route("/reports/<path:filename>", methods=["GET"])
 def download_report(filename):
     return send_from_directory(REPORTS_DIR, filename, as_attachment=True)
+# ---------------------------------------------------------------------------
+# (13/11/2026) NHẬN WEBHOOK: trả "OK" cho LINE NGAY, xử lý ở luồng nền.
+# Trước đây bot xử lý xong mới trả lời LINE; chậm hơn ~1 giây là LINE cắt kết nối (HTTP 499) và GỬI LẠI
+# sự kiện mỗi phút (đã bật "Webhook redelivery") -> bấm menu 1 lần mà nhóm nhận 5 thẻ trùng, tốn tin push.
+# Nay: kiểm chữ ký -> bỏ vào hàng đợi -> trả OK; 1 luồng nền xử lý lần lượt (giữ đúng thứ tự như cũ).
+# Sự kiện nào đã xử lý (theo webhookEventId) thì bỏ qua; bấm menu do LINE gửi lại thì bỏ qua luôn.
+# ---------------------------------------------------------------------------
+import base64 as _b64
+import hashlib as _hashlib
+import hmac as _hmac
+import queue as _queue
+import threading as _thr
+import time as _time
+
+_HANG_DOI_WEBHOOK = _queue.Queue()
+_KHOA_THO = _thr.Lock()
+_THO_XU_LY = {"t": None}
+_DA_XU_LY = {}  # webhookEventId -> lúc xử lý (bộ nhớ); bảng webhook_su_kien giữ qua các lần khởi động lại
+
+
+def _ky_ten(body_bytes):
+    return _b64.b64encode(_hmac.new(CHANNEL_SECRET.encode("utf-8"), body_bytes, _hashlib.sha256).digest()).decode()
+
+
+def _conn_su_kien():
+    conn = storage._connect()
+    conn.execute("CREATE TABLE IF NOT EXISTS webhook_su_kien (id TEXT PRIMARY KEY, luc REAL)")
+    return conn
+
+
+def _da_xu_ly_su_kien(eid):
+    if eid in _DA_XU_LY:
+        return True
+    try:
+        conn = _conn_su_kien()
+        try:
+            return conn.execute("SELECT 1 FROM webhook_su_kien WHERE id = ?", (eid,)).fetchone() is not None
+        finally:
+            conn.close()
+    except Exception:
+        traceback.print_exc()
+        return False
+
+
+def _danh_dau_su_kien(eid):
+    now = _time.time()
+    _DA_XU_LY[eid] = now
+    if len(_DA_XU_LY) > 5000:
+        for k in sorted(_DA_XU_LY, key=_DA_XU_LY.get)[:2500]:
+            _DA_XU_LY.pop(k, None)
+    try:
+        conn = _conn_su_kien()
+        with conn:
+            conn.execute("INSERT OR IGNORE INTO webhook_su_kien (id, luc) VALUES (?, ?)", (eid, now))
+            conn.execute("DELETE FROM webhook_su_kien WHERE luc < ?", (now - 3 * 86400,))
+        conn.close()
+    except Exception:
+        traceback.print_exc()
+
+
+def _xu_ly_body_webhook(body):
+    data = json.loads(body)
+    events = data.get("events") or []
+    giu = []
+    for ev in events:
+        eid = ev.get("webhookEventId")
+        gui_lai = bool((ev.get("deliveryContext") or {}).get("isRedelivery"))
+        if eid and _da_xu_ly_su_kien(eid):
+            print(f"[WEBHOOK] bo qua su kien trung {eid} ({ev.get('type')}, LINE gui lai={gui_lai})")
+            continue
+        if gui_lai and ev.get("type") == "postback":
+            # bấm menu bị LINE gửi lại (lần đầu không tới bot): không trả thẻ trễ, khỏi tốn tin push
+            print(f"[WEBHOOK] bo qua bam menu do LINE gui lai {eid}")
+            if eid:
+                _danh_dau_su_kien(eid)
+            continue
+        if eid:
+            _danh_dau_su_kien(eid)
+        giu.append(ev)
+    if not giu:
+        return
+    if len(giu) != len(events):
+        data["events"] = giu
+        body = json.dumps(data, ensure_ascii=False)
+    handler.handle(body, _ky_ten(body.encode("utf-8")))
+
+
+def _vong_xu_ly_webhook():
+    while True:
+        body = _HANG_DOI_WEBHOOK.get()
+        try:
+            _xu_ly_body_webhook(body)
+        except Exception:
+            traceback.print_exc()
+        finally:
+            _HANG_DOI_WEBHOOK.task_done()
+
+
+def _dam_bao_tho_webhook():
+    with _KHOA_THO:
+        t = _THO_XU_LY["t"]
+        if t is None or not t.is_alive():
+            t = _thr.Thread(target=_vong_xu_ly_webhook, name="xu-ly-webhook", daemon=True)
+            t.start()
+            _THO_XU_LY["t"] = t
+
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
+    raw = request.get_data()
+    if not signature or not _hmac.compare_digest(_ky_ten(raw), signature):
         abort(400)
+    _HOST_URL["v"] = request.host_url.rstrip("/")
+    _dam_bao_tho_webhook()
+    _HANG_DOI_WEBHOOK.put(raw.decode("utf-8"))
     return "OK"
+_HOST_URL = {"v": ""}  # (13/11/2026) nhớ host lúc nhận webhook: luồng nền không có "request" của Flask
+
+
 def _base_url():
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL
-    return request.host_url.rstrip("/")
+    from flask import has_request_context
+    if has_request_context():
+        return request.host_url.rstrip("/")
+    return _HOST_URL["v"]
 def _now_vn_time_str():
     try:
         from zoneinfo import ZoneInfo
@@ -2015,6 +2129,10 @@ def _ghi_lich_su_menu(messaging_api, event, nut, kieu):
                               "Nhóm" if event.source.type == "group" else "Riêng")
     except Exception:
         traceback.print_exc()
+GIAY_CHONG_BAM_TRUNG = 20
+_LAN_BAM_GAN = {}  # (chat, nút) -> lúc trả bảng gần nhất
+
+
 @handler.add(PostbackEvent)
 def handle_postback(event):
     """(10/11/2026) Bấm ô trong MENU (thẻ trong nhóm hoặc menu chat riêng): không hiện chữ trong khung chat,
@@ -2027,7 +2145,17 @@ def handle_postback(event):
         source_type = event.source.type
         target_id = event.source.group_id if source_type == "group" else getattr(event.source, "user_id", None)
         print(f"[MENU-POSTBACK] {lenh} tu {source_type}")
+        if getattr(getattr(event, "delivery_context", None), "is_redelivery", False):
+            print("[MENU-POSTBACK] bo qua: LINE gui lai")
+            return
         _ghi_lich_su_menu(messaging_api, event, lenh, "bấm")
+        # (13/11/2026) bấm liên tục cùng 1 ô trong cùng 1 chat (bấm 2-3 lần vì tưởng chưa ăn): chỉ trả 1 bảng
+        khoa = (target_id, lenh)
+        bay_gio = _time.monotonic()
+        if bay_gio - _LAN_BAM_GAN.get(khoa, -1e9) < GIAY_CHONG_BAM_TRUNG:
+            print(f"[MENU-POSTBACK] bo qua bam trung {lenh} trong {GIAY_CHONG_BAM_TRUNG}s")
+            return
+        _LAN_BAM_GAN[khoa] = bay_gio
         try:
             _xu_ly_lenh_menu(lenh, event, messaging_api, api_client, source_type, target_id, chi_bang=True)
         except Exception as e:
