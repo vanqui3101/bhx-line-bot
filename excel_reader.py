@@ -17,6 +17,7 @@ excel_reader.py - Đọc 3 loại file Excel mà bot nhận:
 detect_file_type() dùng để tự động phân biệt 3 loại file khi người dùng gửi
 file vào bot, không cần người dùng khai báo loại file.
 """
+import os
 import openpyxl
 import re
 from datetime import datetime
@@ -37,6 +38,52 @@ COL = {
 }
 
 # Cột đặc trưng của file "chi tiết ngành hàng" (per-product)
+# (14/11/2026) Bot chỉ phục vụ 1 siêu thị. File POS có cột "Mã siêu thị" mà KHÔNG có dòng nào của
+# siêu thị này (lỡ gửi file siêu thị khác) -> bot không nạp, tránh số MTKM/doanh thu bị đè sai.
+MA_ST_CHINH = (os.environ.get("MA_SIEU_THI") or "8363").strip()
+_NHAN_COT_MA_ST = ("Mã siêu thị", "Mã ST", "storeid")
+
+
+def _chuan_ma_st(v):
+    s = str(v).strip()
+    return s[:-2] if s.endswith(".0") else s
+
+
+def kiem_tra_sieu_thi(path):
+    """Trả về (hop_le, mo_ta). hop_le=False khi file có cột mã siêu thị nhưng không có dòng nào của
+    MA_ST_CHINH; mo_ta = "mã - tên" siêu thị trong file. File không có cột mã siêu thị -> (True, "")."""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws = wb.worksheets[0]
+        cot_ma = cot_ten = None
+        khac = {}
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if cot_ma is None:
+                if i >= 10:
+                    return True, ""
+                nhan = [str(c).strip() if c is not None else "" for c in row]
+                for j, n in enumerate(nhan):
+                    if n in _NHAN_COT_MA_ST:
+                        cot_ma = j
+                        break
+                if cot_ma is not None and "Tên siêu thị" in nhan:
+                    cot_ten = nhan.index("Tên siêu thị")
+                continue
+            if cot_ma >= len(row) or row[cot_ma] in (None, ""):
+                continue
+            ma = _chuan_ma_st(row[cot_ma])
+            if ma == MA_ST_CHINH:
+                return True, ""
+            if ma not in khac:
+                ten = row[cot_ten] if cot_ten is not None and cot_ten < len(row) else ""
+                khac[ma] = f"{ma} - {str(ten or '').strip()}".strip(" -")
+        if cot_ma is None or not khac:
+            return True, ""
+        return False, ", ".join(list(khac.values())[:3])
+    finally:
+        wb.close()
+
+
 CATEGORY_COL = {
     "ngay": "Ngày xuất",
     "ten_st": "Tên siêu thị",
@@ -235,6 +282,7 @@ def _finish_day_payload(ngay_str, acc):
     return {
         "ngay": ngay_str,
         "ten_st": acc["ten_st"] or "—",
+        **({"ma_st": acc["ma_st"]} if acc.get("ma_st") else {}),
         "nam": {"doanh_thu": acc["nam"]},
         "c2": {
             "items": c2_items,
@@ -297,6 +345,7 @@ def read_category_rows_by_date(input_path):
     i_phan_tich = header.index("Ngành hàng - Phân tích") if "Ngành hàng - Phân tích" in header else None
     i_model = header.index("Model") if "Model" in header else None
     i_ma_sp = header.index("Mã sản phẩm") if "Mã sản phẩm" in header else None
+    i_ma_st = next((header.index(n) for n in _NHAN_COT_MA_ST if n in header), None)
 
     theo_ngay = {}
     for row in rows_iter:
@@ -306,6 +355,10 @@ def read_category_rows_by_date(input_path):
 
         ten_sp = cell("ten_sp")
         if ten_sp is None:
+            continue
+        # (14/11/2026) file nhiều siêu thị: chỉ lấy dòng của siêu thị mình
+        if i_ma_st is not None and i_ma_st < len(row) and row[i_ma_st] not in (None, "") \
+                and _chuan_ma_st(row[i_ma_st]) != MA_ST_CHINH:
             continue
         ngay_str = _parse_ngay_xuat(cell("ngay"))
         if not ngay_str:
@@ -317,6 +370,8 @@ def read_category_rows_by_date(input_path):
         ten_sp_upper = str(ten_sp).strip().upper()
         if acc["ten_st"] is None and cell("ten_st"):
             acc["ten_st"] = str(cell("ten_st")).strip()
+        if i_ma_st is not None:
+            acc["ma_st"] = MA_ST_CHINH
 
         sl_thuc_xuat = float(cell("sl_thuc_xuat") or 0)
         thanh_tien = float(cell("thanh_tien") or 0)

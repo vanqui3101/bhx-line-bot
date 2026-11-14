@@ -68,7 +68,7 @@ from excel_reader import (
     is_schedule_file, read_schedule_rows,
     is_ca_schedule_file, read_ca_schedule, phan_line_assign,
     TEN_NGAN_TO_MA_NV, NOI_DUNG_CA_MAC_DINH,
-    read_fresh_rows,
+    read_fresh_rows, kiem_tra_sieu_thi, MA_ST_CHINH,
 )
 from flex_builder import build_flex_message, build_category_flex_message, build_thuong_flex_message
 from excel_report import build_detail_excel
@@ -472,6 +472,10 @@ def _luu_mtkm_tat_ca_ngay(tmp_path):
     for ngay in sorted(theo_ngay):
         p = theo_ngay[ngay]
         storage.save_category_report(ngay, p["ten_st"], p, gio)
+        if p.get("ma_st") == MA_ST_CHINH:  # (14/11/2026) số đã lọc đúng siêu thị -> bỏ bản gửi nhầm cùng ngày
+            n = storage.xoa_category_khac_sieu_thi(ngay, p["ten_st"])
+            if n:
+                print(f"[SAI-SIEU-THI] da xoa {n} ban MTKM cua sieu thi khac ngay {ngay}")
     ds = sorted(theo_ngay)
     return ds, (theo_ngay[ds[-1]] if ds else None)
 
@@ -1169,10 +1173,28 @@ def _luu_file_ln_fresh(tmp_path, file_name):
     t = p["tong"]
     return (f"✅ Đã lưu LN FRESH{gio_txt}: LN {menu_bot._tr(t['ln'], True)}tr, chênh so TB 3 tháng "
             f"{menu_bot._tr(t['chenh'], True)}tr.\nGõ \"LN FRESH\" để xem bảng.")
+def _canh_bao_sai_sieu_thi(tmp_path):
+    """(14/11/2026) None nếu file đúng siêu thị (hoặc không có cột mã siêu thị); ngược lại trả câu cảnh báo
+    và bot KHÔNG nạp file (giữ nguyên số cũ)."""
+    try:
+        hop_le, mo_ta = kiem_tra_sieu_thi(tmp_path)
+    except Exception:
+        traceback.print_exc()
+        return None
+    if hop_le:
+        return None
+    print(f"[SAI-SIEU-THI] bo qua file cua sieu thi {mo_ta}")
+    return (f"⚠️ File này là số của siêu thị {mo_ta}, không phải {MA_ST_CHINH} – bot KHÔNG nạp, số cũ giữ "
+            f"nguyên. Anh xuất lại file chọn siêu thị {MA_ST_CHINH} rồi gửi lại nhé.")
+
+
 def _process_drive_file(tmp_path, file_name):
     """Đọc + lưu 1 file Excel đã tải về từ Drive. Trả về (thanh_cong: bool, noi_dung_thong_bao: str)."""
     try:
         if menu_bot.la_file_ln_fresh(tmp_path):  # (09/11/2026) file LN Fresh POS 3933
+            cb = _canh_bao_sai_sieu_thi(tmp_path)
+            if cb:
+                return True, "[Tự động từ Drive] " + cb
             return True, "[Tự động từ Drive] " + _luu_file_ln_fresh(tmp_path, file_name)
         if is_ca_schedule_file(tmp_path):
             ca_data = read_ca_schedule(tmp_path)
@@ -1184,6 +1206,9 @@ def _process_drive_file(tmp_path, file_name):
             storage.save_support_schedule_rows(schedule_rows)
             return True, (f"✅ [Tự động từ Drive] Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC từ file "
                           f"\"{file_name}\" ({len(schedule_rows)} dòng).")
+        cb = _canh_bao_sai_sieu_thi(tmp_path)
+        if cb:
+            return True, "[Tự động từ Drive] " + cb
         file_type = detect_file_type(tmp_path)
         if file_type == "revenue":
             date_str, rows = read_all_rows(tmp_path)
@@ -1290,7 +1315,8 @@ def handle_file_message(event):
                 f.write(content)
             # (09/11/2026) File LN Fresh (POS 3933 "Báo cáo hiệu quả bán Fresh siêu thị") cho nút LN FRESH
             if menu_bot.la_file_ln_fresh(tmp_path):
-                reply_text(messaging_api, event.reply_token, _luu_file_ln_fresh(tmp_path, original_name))
+                reply_text(messaging_api, event.reply_token,
+                           _canh_bao_sai_sieu_thi(tmp_path) or _luu_file_ln_fresh(tmp_path, original_name))
                 return
             if is_ca_schedule_file(tmp_path):
                 ca_data = read_ca_schedule(tmp_path)
@@ -1304,6 +1330,10 @@ def handle_file_message(event):
                 so_dong = len(schedule_rows)
                 reply = f"✅ Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC ({so_dong} dòng). Bot sẽ tự nhắc đúng người vào 20h và 21h mỗi ngày."
                 reply_text(messaging_api, event.reply_token, reply)
+                return
+            cb = _canh_bao_sai_sieu_thi(tmp_path)
+            if cb:
+                reply_text(messaging_api, event.reply_token, cb)
                 return
             file_type = detect_file_type(tmp_path)
             if file_type == "revenue":

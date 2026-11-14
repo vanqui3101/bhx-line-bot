@@ -201,35 +201,57 @@ def save_category_report(ngay, ten_st, payload, gio=None):
                 gio=excluded.gio
         """, (ngay, ten_st, json.dumps(payload, ensure_ascii=False), gio))
     conn.close()
+def xoa_category_khac_sieu_thi(ngay, ten_st_giu):
+    """(14/11/2026) Sau khi lưu số đúng siêu thị cho 1 ngày: xóa bản của siêu thị khác cùng ngày
+    (lỡ gửi nhầm file siêu thị khác trước đó). Trả về số dòng đã xóa."""
+    conn = _connect()
+    with conn:
+        n = conn.execute("DELETE FROM category_reports WHERE ngay = ? AND ten_st != ?",
+                         (ngay, ten_st_giu)).rowcount
+    conn.close()
+    return n
+
+
+def _uu_tien_st_chinh(ds):
+    """ds: list (ten_st, payload) cùng 1 ngày, theo thứ tự lưu. Ưu tiên bản có ma_st = siêu thị chính
+    (8363); không có thì lấy bản lưu sau cùng như trước."""
+    ma = (os.environ.get("MA_SIEU_THI") or "8363").strip()
+    for ten_st, p in reversed(ds):
+        if str(p.get("ma_st", "")) == ma:
+            return ten_st, p
+    return ds[-1]
+
+
 def get_latest_category_report():
     """Trả về (ngay, ten_st, payload_dict, gio) của báo cáo ngành hàng mới nhất,
     hoặc (None, None, None, None) nếu chưa có dữ liệu."""
     conn = _connect()
     cur = conn.execute(
         "SELECT ngay, ten_st, payload_json, gio FROM category_reports "
-        "ORDER BY ngay DESC, rowid DESC LIMIT 1"
+        "WHERE ngay = (SELECT MAX(ngay) FROM category_reports) ORDER BY rowid"
     )
-    row = cur.fetchone()
+    rows = cur.fetchall()
     conn.close()
-    if not row:
+    if not rows:
         return None, None, None, None
-    ngay, ten_st, payload_json, gio = row
-    return ngay, ten_st, json.loads(payload_json), gio
+    gio_theo_st = {r[1]: r[3] for r in rows}
+    ten_st, payload = _uu_tien_st_chinh([(r[1], json.loads(r[2])) for r in rows])
+    return rows[0][0], ten_st, payload, gio_theo_st.get(ten_st)
 def get_category_reports_range(ngay_tu, ngay_den):
     """(05/10/2026) Trả về dict {ngay: payload_dict} của MỌI ngày đã lưu trong
     khoảng [ngay_tu, ngay_den] (chuỗi "YYYY-MM-DD"). Dùng cho thẻ MTKM lũy kế.
     Siêu thị chỉ có 1 (8363) nên nếu trùng ngày lấy bản lưu sau cùng."""
     conn = _connect()
     cur = conn.execute(
-        "SELECT ngay, payload_json FROM category_reports "
+        "SELECT ngay, ten_st, payload_json FROM category_reports "
         "WHERE ngay >= ? AND ngay <= ? ORDER BY ngay, rowid",
         (ngay_tu, ngay_den),
     )
-    out = {}
-    for ngay, payload_json in cur.fetchall():
-        out[ngay] = json.loads(payload_json)
+    theo_ngay = {}
+    for ngay, ten_st, payload_json in cur.fetchall():
+        theo_ngay.setdefault(ngay, []).append((ten_st, json.loads(payload_json)))
     conn.close()
-    return out
+    return {ngay: _uu_tien_st_chinh(ds)[1] for ngay, ds in theo_ngay.items()}
 # ---------------------------------------------------------------------------
 # TỒN KHO (BC tồn theo model) - mới thêm
 # ---------------------------------------------------------------------------
@@ -272,6 +294,8 @@ def save_thuong_report(ten_st, payload, gio=None):
         )
     """)
     with conn:
+        # (14/11/2026) bot chỉ 1 siêu thị: bỏ bản của siêu thị khác (file gửi nhầm trước đó)
+        conn.execute("DELETE FROM thuong_reports WHERE ten_st != ?", (ten_st,))
         conn.execute("""
             INSERT INTO thuong_reports (ten_st, payload_json, gio)
             VALUES (?, ?, ?)
