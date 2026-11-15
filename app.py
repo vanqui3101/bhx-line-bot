@@ -82,6 +82,7 @@ import muc_tieu_ngay
 import muc_tieu_flex
 import gdrive_reader
 import menu_bot
+import mtkm_sieu_thi_phu  # (15/11/2026) MTKM nấm siêu thị phụ (14536 Mỹ Xuyên), tách riêng 8363
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
@@ -1188,6 +1189,24 @@ def _canh_bao_sai_sieu_thi(tmp_path):
             f"nguyên. Anh xuất lại file chọn siêu thị {MA_ST_CHINH} rồi gửi lại nhé.")
 
 
+def _xu_ly_file_sieu_thi_phu(tmp_path):
+    """(15/11/2026) File POS 76 của siêu thị phụ (14536 Mỹ Xuyên): chỉ lưu số nấm vào bảng riêng, không đụng 8363.
+    Trả về (theo_st, canh_bao): (None, None) = không phải file siêu thị phụ -> xử lý tiếp như cũ."""
+    try:
+        theo_st, cac_ma = mtkm_sieu_thi_phu.doc_file(tmp_path)
+    except Exception:
+        traceback.print_exc()
+        return None, None
+    if not cac_ma or not theo_st:
+        return None, None
+    if MA_ST_CHINH in cac_ma:
+        return None, ("⚠️ File này có số của nhiều siêu thị (" + ", ".join(sorted(cac_ma)) + ") – bot chưa nạp. "
+                      "Anh xuất riêng từng siêu thị rồi gửi lại nhé.")
+    mtkm_sieu_thi_phu.luu(theo_st, _now_vn_time_str())
+    print(f"[ST-PHU] da luu MTKM nam: {mtkm_sieu_thi_phu.tom_tat(theo_st)}")
+    return theo_st, None
+
+
 def _process_drive_file(tmp_path, file_name):
     """Đọc + lưu 1 file Excel đã tải về từ Drive. Trả về (thanh_cong: bool, noi_dung_thong_bao: str)."""
     try:
@@ -1206,6 +1225,11 @@ def _process_drive_file(tmp_path, file_name):
             storage.save_support_schedule_rows(schedule_rows)
             return True, (f"✅ [Tự động từ Drive] Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC từ file "
                           f"\"{file_name}\" ({len(schedule_rows)} dòng).")
+        theo_phu, cb_phu = _xu_ly_file_sieu_thi_phu(tmp_path)
+        if cb_phu:
+            return True, "[Tự động từ Drive] " + cb_phu
+        if theo_phu:
+            return True, "[Tự động từ Drive] " + mtkm_sieu_thi_phu.tom_tat(theo_phu)
         cb = _canh_bao_sai_sieu_thi(tmp_path)
         if cb:
             return True, "[Tự động từ Drive] " + cb
@@ -1330,6 +1354,15 @@ def handle_file_message(event):
                 so_dong = len(schedule_rows)
                 reply = f"✅ Đã cập nhật LỊCH HỖ TRỢ SIÊU THỊ KHÁC ({so_dong} dòng). Bot sẽ tự nhắc đúng người vào 20h và 21h mỗi ngày."
                 reply_text(messaging_api, event.reply_token, reply)
+                return
+            theo_phu, cb_phu = _xu_ly_file_sieu_thi_phu(tmp_path)
+            if cb_phu:
+                reply_text(messaging_api, event.reply_token, cb_phu)
+                return
+            if theo_phu:  # (15/11/2026) file 14536 -> trả ngay bảng MTKM của siêu thị đó
+                ma_phu = next(iter(theo_phu))
+                reply_flex(messaging_api, event.reply_token, f"MTKM {ma_phu}",
+                           mtkm_sieu_thi_phu.build_the(mtkm_sieu_thi_phu.tinh(ma_phu)))
                 return
             cb = _canh_bao_sai_sieu_thi(tmp_path)
             if cb:
@@ -1838,6 +1871,25 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     reply_text(messaging_api, event.reply_token, f"Có lỗi khi tạo báo cáo DTDK: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # (15/11/2026) "MTKM 14536" / "MTKM MX" / "MTKM Mỹ Xuyên" — siêu thị phụ, tách riêng 8363
+        ma_phu = mtkm_sieu_thi_phu.nhan_dien_lenh(text)
+        if ma_phu:
+            try:
+                _nap_drive_truoc_khi_tra_bang()
+                kq_phu = mtkm_sieu_thi_phu.tinh(ma_phu)
+                if kq_phu is None:
+                    notify_text(messaging_api, event.reply_token, target_id,
+                                f"Chưa có số POS 76 của siêu thị {ma_phu} – anh gửi file Doanh thu chi tiết (POS 76) "
+                                "của siêu thị đó nhé.")
+                    return
+                reply_flex(messaging_api, event.reply_token, f"MTKM {ma_phu}", mtkm_sieu_thi_phu.build_the(kq_phu))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo MTKM {ma_phu}: {e}")
                 except Exception:
                     traceback.print_exc()
             return
