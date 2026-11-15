@@ -108,9 +108,12 @@ def luu(theo_st, gio):
     with conn:
         for ma, o in theo_st.items():
             for ngay, nam in o["ngay"].items():
+                # Số bán trong ngày chỉ tăng dần theo giờ xuất file -> giữ số LỚN HƠN, để file cũ nạp sau
+                # (vd file sáng nạp qua Drive sau file chiều gửi LINE) không đè số mới.
                 conn.execute("INSERT INTO mtkm_st_phu (ma_st, ngay, ten_st, nam, gio) VALUES (?, ?, ?, ?, ?) "
-                             "ON CONFLICT(ma_st, ngay) DO UPDATE SET ten_st=excluded.ten_st, nam=excluded.nam, "
-                             "gio=excluded.gio", (ma, ngay, o["ten_st"], nam, gio))
+                             "ON CONFLICT(ma_st, ngay) DO UPDATE SET ten_st=excluded.ten_st, "
+                             "gio=CASE WHEN excluded.nam >= mtkm_st_phu.nam THEN excluded.gio ELSE mtkm_st_phu.gio END, "
+                             "nam=MAX(mtkm_st_phu.nam, excluded.nam)", (ma, ngay, o["ten_st"], nam, gio))
     conn.close()
 
 

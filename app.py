@@ -1361,6 +1361,7 @@ def handle_file_message(event):
                 return
             if theo_phu:  # (15/11/2026) file 14536 -> trả ngay bảng MTKM của siêu thị đó
                 ma_phu = next(iter(theo_phu))
+                _nap_drive_truoc_khi_tra_bang()  # nạp luôn file đầu tháng còn chờ trong Drive (nếu có)
                 reply_flex(messaging_api, event.reply_token, f"MTKM {ma_phu}",
                            mtkm_sieu_thi_phu.build_the(mtkm_sieu_thi_phu.tinh(ma_phu)))
                 return
