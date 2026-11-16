@@ -69,9 +69,12 @@ MUC_TIEU_THANG = {
             {"key": "nam", "ten": "Nấm", "truong": "nam.doanh_thu", "don_vi": "tr",
              "muc_tieu": 25_000_000, "cho": "thu_ngan", "ap_dung_tu": "2026-11-09"},
             # (02/11/2026) Nhóm đếm số lượng: Celano (sữa lốc, chỉ trong chu kỳ thi đua) · C2 · nước giặt 888
-            {"key": "celano", "ten": "Celano (lốc)", "truong": "celano_loc", "don_vi": "loc", "muc_tieu": 0,
-             "chi_trong_giai_doan": True,
-             "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"}]},
+            # (16/11/2026) Tuần 3: thi đua 3 mã sữa Celano CÓ THẠCH (mè đen, đậu xanh, cốm dừa; không tính gạo rang)
+            #   mục tiêu 10 lốc/ngày x 7 ngày = 70 lốc (16–22/11), giao thu ngân; thiếu thì dồn ngày sau
+            {"key": "celano", "ten": "Celano có thạch (lốc)", "truong": "celano_loc", "don_vi": "loc", "muc_tieu": 0,
+             "cho": "thu_ngan", "chi_trong_giai_doan": True,
+             "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"},
+                           {"tu": "2026-11-16", "den": "2026-11-22", "muc_tieu": 70, "nhan": "Thi đua 16–22/11"}]},
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
             {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
              "muc_tieu": 600, "cho": "thu_ngan"},  # (02/11/2026) 20 túi/ngày

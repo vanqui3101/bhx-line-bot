@@ -83,7 +83,9 @@ MUC_TIEU_THANG = {
         # quy ra 183 lốc theo giá TB T10 32.866đ/lốc. Chỉ tính trong chu kỳ.
         "celano": {"chi_trong_giai_doan": True,
                    "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183,
-                                  "muc_tieu_tien": 6_015_000}]},
+                                  "muc_tieu_tien": 6_015_000},
+                                 # (16/11/2026) Tuần 3: 3 mã sữa Celano CÓ THẠCH, 10 lốc/ngày -> 70 lốc 16–22/11
+                                 {"tu": "2026-11-16", "den": "2026-11-22", "muc_tieu": 70}]},
         "ng888": {"muc_tieu": 600},  # (02/11/2026) anh nâng lên 20 túi/ngày x 30 ngày (trước: 200 túi/tháng)
         "ca": {"muc_tieu": 59_480_000},   # (06/11/2026) doanh thu cá T10 58,31tr x 102%, bỏ mục tiêu riêng tuần 1
         "trung": {"muc_tieu": 750},
@@ -356,7 +358,7 @@ def ca_txt(ds_ca):
 _TU_KHOA = [
     # (08/11/2026) kem đánh răng đặt đầu để "kem" không bị hiểu sang mục khác
     ("kdr", r"kem\s*danh\s*rang|(?<![a-z0-9])kdr(?![a-z0-9])|(?<![a-z0-9])p\s?/\s?s(?![a-z0-9])|(?<![a-z0-9/])ps(?![a-z0-9])"),
-    ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])"),
+    ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])|co\s*thach|(?<![a-z0-9])thach(?![a-z0-9])"),
     ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),
     ("dm", r"dong\s*mat|d\.\s*mat|(?<![a-z0-9])dm(?![a-z0-9])"),

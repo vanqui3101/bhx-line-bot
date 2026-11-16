@@ -105,6 +105,18 @@ CELANO_MODELS = {
     "2609001657",  # Yến mạch vị Nguyên bản 180ml
     "2609001223",  # Trà sữa vị Gạo rang có thạch 170ml
 }
+# (16/11/2026) Thi đua tuần 3 (16–22/11) anh Quí chốt: CHỈ 3 mã sữa tiệt trùng Celano CÓ THẠCH 170ml
+# (KHÔNG tính gạo rang) — từ 16/11 trường celano_loc đếm 3 mã này.
+CELANO_THACH_MODELS = {
+    "2610000628",  # TUST tiệt trùng Celano mè đen có thạch hộp 170ml
+    "2610000626",  # TUST tiệt trùng Celano đậu xanh có thạch hộp 170ml
+    "2610000627",  # TUST tiệt trùng Celano cốm dừa có thạch hộp 170ml
+}
+NGAY_DOI_MA_CELANO = "2026-11-16"
+
+
+def _ma_celano_theo_ngay(ngay_str):
+    return CELANO_THACH_MODELS if ngay_str >= NGAY_DOI_MA_CELANO else CELANO_MODELS
 
 # (08/11/2026) Thi đua tuần 2 (09–15/11): kem đánh răng P/S 2 mã — đếm số tuýp/hộp bán (anh Quí: bán hết tồn)
 #   khớp theo "Mã sản phẩm" (anh đưa) hoặc mã Model tương ứng trong POS 76
@@ -420,7 +432,7 @@ def read_category_rows_by_date(input_path):
 
         # ---- (02/11/2026) CELANO 4 SKU thi đua (Model) -> lốc 4 hộp + doanh thu ----
         if (not la_tang and i_model is not None and i_model < len(row)
-                and str(row[i_model] or "").strip() in CELANO_MODELS):
+                and str(row[i_model] or "").strip() in _ma_celano_theo_ngay(ngay_str)):
             don_vi_up = str(cell("don_vi") or "").strip().upper()
             he_so = {"HỘP": 0.25, "THÙNG": 12}.get(don_vi_up, 1)
             acc["celano_loc"] += sl_thuc_xuat * he_so
