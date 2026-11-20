@@ -125,6 +125,9 @@ KDR_PS_MA = {
     "9252712000219", "2009001129",   # P/S Baking soda & hương thảo 230g
 }
 
+# (20/11/2026) Táo cherry hộp 500gr — mục tiêu thu ngân tối thiểu 12 hộp/ngày từ 21/11 (đếm số hộp bán)
+TAO_CHERRY_HOP_MA = {"1232854000547", "2409000859"}
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -273,6 +276,7 @@ def _empty_day_acc():
         "celano_loc": 0.0,
         "celano_tien": 0.0,
         "kdr_ps_tuyp": 0.0,
+        "tao_cherry_hop": 0.0,
     }
 
 
@@ -328,6 +332,8 @@ def _finish_day_payload(ngay_str, acc):
         "celano_tien": acc["celano_tien"],
         # (08/11/2026) Kem đánh răng P/S 2 mã thi đua tuần 2 — số tuýp/hộp bán ra
         "kdr_ps_tuyp": acc["kdr_ps_tuyp"],
+        # (20/11/2026) Táo cherry hộp 500gr — số hộp bán
+        "tao_cherry_hop": acc["tao_cherry_hop"],
     }
 
 
@@ -443,6 +449,12 @@ def read_category_rows_by_date(input_path):
                 (i_ma_sp is not None and i_ma_sp < len(row) and str(row[i_ma_sp] or "").strip() in KDR_PS_MA)
                 or (i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in KDR_PS_MA)):
             acc["kdr_ps_tuyp"] += sl_thuc_xuat
+
+        # ---- (20/11/2026) TÁO CHERRY HỘP 500GR -> số hộp ----
+        if not la_tang and (
+                (i_ma_sp is not None and i_ma_sp < len(row) and str(row[i_ma_sp] or "").strip() in TAO_CHERRY_HOP_MA)
+                or (i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in TAO_CHERRY_HOP_MA)):
+            acc["tao_cherry_hop"] += sl_thuc_xuat
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

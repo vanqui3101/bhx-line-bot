@@ -40,7 +40,8 @@ TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 # (06/11/2026) Bỏ hẳn Hóa mỹ phẩm (anh Quí chốt): không giao, không chốt số, không xếp hạng.
 # Vẫn giữ từ khoá "hmp" trong bộ đọc báo cáo để số HMP các bạn lỡ báo không bị đọc nhầm sang mục khác.
 # (08/11/2026) Tuần 2: thêm Nấm (tiền, tới hết tháng) và Kem đánh răng P/S (tuýp, thi đua 09–15/11) cho thu ngân
-MUC_THU_NGAN = ["sk", "dm", "nam", "celano", "c2", "ng888", "kdr"]
+# (20/11/2026) Từ 21/11: bỏ ĐMSK (sữa khô + đông mát) khỏi thu ngân, thêm Táo cherry hộp 500gr (21–28/11, min 100 hộp)
+MUC_THU_NGAN = ["sk", "dm", "tao", "nam", "celano", "c2", "ng888", "kdr"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -59,6 +60,8 @@ MUC = {
     "ng888": {"ten": "888", "don_vi": "túi", "vai_tro": "thu_ngan", "truong": "nuoc_giat_888.sl", "nguyen": True},
     "nam": {"ten": "Nấm", "don_vi": "tr", "vai_tro": "thu_ngan", "truong": "nam.doanh_thu"},
     "kdr": {"ten": "Kem đánh răng", "don_vi": "tuýp", "vai_tro": "thu_ngan", "truong": "kdr_ps_tuyp", "nguyen": True},
+    # (20/11/2026) Táo cherry hộp 500gr (mã SP 1232854000547 / Model 2409000859) — đếm số hộp
+    "tao": {"ten": "Táo cherry", "don_vi": "hộp", "vai_tro": "thu_ngan", "truong": "tao_cherry_hop", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
     "heo": {"ten": "Heo C.P", "don_vi": "kg", "vai_tro": "fresh", "truong": "heo_cp_kg"},
@@ -72,13 +75,20 @@ MUC = {
 #      cá + trứng T10 74,464tr - trứng T10 16,150tr = cá T10 58,314tr -> x1,02 = 59,48tr.
 #      MT ngày = (59,48tr - đã bán từ 01/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay; bán dư thì ngày sau giảm.
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
-             "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng"}
+             "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng",
+             "tao": "táo cherry"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
-        "sk": {"muc_tieu": 231_864_000},
-        "dm": {"muc_tieu": 239_136_000},
-        "c2": {"muc_tieu": 900},
+        # (20/11/2026) anh Quí: từ 21/11 bỏ ĐMSK khỏi mục tiêu thu ngân (không giao, không chốt số)
+        "sk": {"muc_tieu": 231_864_000, "ngung_tu": "2026-11-21"},
+        "dm": {"muc_tieu": 239_136_000, "ngung_tu": "2026-11-21"},
+        # (20/11/2026) C2 đã vượt 900 lốc (nhờ đơn Online lớn 19/11) -> từ 21/11 giữ sàn 20 lốc/ngày cho thu ngân
+        "c2": {"muc_tieu": 900, "san_ngay": 20, "san_tu": "2026-11-21"},
+        # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp cả đợt, mỗi ngày không dưới 12 hộp
+        #   MT ngày = (100 - đã bán từ 21/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay (thiếu thì dồn)
+        "tao": {"chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
+                "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100}]},
         # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
         # quy ra 183 lốc theo giá TB T10 32.866đ/lốc. Chỉ tính trong chu kỳ.
         "celano": {"chi_trong_giai_doan": True,
@@ -214,6 +224,9 @@ def _mt_ngay_muc(cfg_thang, key, theo_ngay, ngay, dau_thang, cuoi_thang):
             v = max(v, v_thang)
     else:
         v = v_thang
+    # (20/11/2026) mức sàn mỗi ngày (VD C2 đã đạt tháng vẫn giữ 20 lốc/ngày)
+    if c.get("san_ngay") and ngay >= _d(c.get("san_tu") or "2000-01-01"):
+        v = max(v, c["san_ngay"])
     return math.ceil(v - 1e-9) if MUC[key].get("nguyen") else v
 
 
@@ -240,6 +253,8 @@ def tinh_cua_hang(ngay_str):
             continue  # thi đua theo chu kỳ: ngoài chu kỳ thì không hiện
         if c.get("ap_dung_tu") and ngay < _d(c["ap_dung_tu"]):
             continue  # (08/11/2026) mục mới chỉ hiện từ ngày áp dụng (VD Nấm từ 09/11)
+        if c.get("ngung_tu") and ngay >= _d(c["ngung_tu"]):
+            continue  # (20/11/2026) mục đã bỏ (ĐMSK từ 21/11)
         theo_ngay = {}
         d = dau_thang
         while d <= ngay:
@@ -255,7 +270,8 @@ def tinh_cua_hang(ngay_str):
         mt = _mt_ngay_muc(cfg_thang, key, theo_ngay, ngay, dau_thang, cuoi_thang)
         mai = ngay + timedelta(days=1)
         mt_mai = None
-        if mai <= cuoi_thang and not (c.get("chi_trong_giai_doan") and mai > _d(gd_nay["den"])):
+        if (mai <= cuoi_thang and not (c.get("chi_trong_giai_doan") and mai > _d(gd_nay["den"]))
+                and not (c.get("ngung_tu") and mai >= _d(c["ngung_tu"]))):
             theo_ngay_mai = dict(theo_ngay)
             mt_mai = _mt_ngay_muc(cfg_thang, key, theo_ngay_mai, mai, dau_thang, cuoi_thang)
         pos = _gia_tri(p_hom_nay, key) if p_hom_nay is not None else None
@@ -358,6 +374,7 @@ def ca_txt(ds_ca):
 _TU_KHOA = [
     # (08/11/2026) kem đánh răng đặt đầu để "kem" không bị hiểu sang mục khác
     ("kdr", r"kem\s*danh\s*rang|(?<![a-z0-9])kdr(?![a-z0-9])|(?<![a-z0-9])p\s?/\s?s(?![a-z0-9])|(?<![a-z0-9/])ps(?![a-z0-9])"),
+    ("tao", r"tao\s*cherry|cherry|(?<![a-z0-9])tao(?![a-z0-9])"),
     ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])|co\s*thach|(?<![a-z0-9])thach(?![a-z0-9])"),
     ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),

@@ -75,7 +75,13 @@ MUC_TIEU_THANG = {
              "cho": "thu_ngan", "chi_trong_giai_doan": True,
              "giai_doan": [{"tu": "2026-11-02", "den": "2026-11-08", "muc_tieu": 183, "nhan": "Thi đua 02–08/11"},
                            {"tu": "2026-11-16", "den": "2026-11-22", "muc_tieu": 70, "nhan": "Thi đua 16–22/11"}]},
-            {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900},
+            # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp (giao thu ngân), mỗi ngày không dưới 12 hộp
+            {"key": "tao", "ten": "Táo cherry hộp 500gr (hộp)", "truong": "tao_cherry_hop", "don_vi": "hop", "muc_tieu": 0,
+             "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
+             "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100, "nhan": "Chạy 21–28/11 · min 100 hộp"}]},
+            # (20/11/2026) C2 đã vượt 900 lốc -> từ 21/11 vẫn giữ sàn 20 lốc/ngày
+            {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900,
+             "san_ngay": 20, "san_tu": "2026-11-21"},
             {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
              "muc_tieu": 600, "cho": "thu_ngan"},  # (02/11/2026) 20 túi/ngày
             # (08/11/2026) Thi đua tuần 2: kem đánh răng P/S 2 mã bán hết tồn (18 + 30 = 48 tuýp)
@@ -196,7 +202,10 @@ def tinh_mtkm(ngay_bc_str):
         else:
             mt_ngay = _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc)
             nhan_gd = None
-        if dong["don_vi"] in ("tui", "loc", "vi", "tuyp"):
+        # (20/11/2026) mức sàn mỗi ngày (C2 20 lốc, táo cherry 12 hộp)
+        if dong.get("san_ngay") and ngay_bc >= _d(dong.get("san_tu") or "2000-01-01"):
+            mt_ngay = max(mt_ngay, dong["san_ngay"])
+        if dong["don_vi"] in ("tui", "loc", "vi", "tuyp", "hop"):
             mt_ngay = math.ceil(mt_ngay - 1e-9)
         hom_nay = tn.get(ngay_bc, 0.0)
         luy_ke = sum(v for dd, v in tn.items() if dd <= ngay_bc)
@@ -274,7 +283,7 @@ def _fmt(v, don_vi):
         return f"{v / 1_000_000:.2f}".replace(".", ",") + "tr"
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",") + "kg"
-    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ", "tuyp": "tuýp"}.get(don_vi, "túi")
+    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ", "tuyp": "tuýp", "hop": "hộp"}.get(don_vi, "túi")
 
 
 def tom_tat_text(kq):
