@@ -150,6 +150,9 @@ BANH_M2T1_DEN = {
 }
 BANH_M2T1_TU = "2026-11-20"
 
+# (21/11/2026) BẮP MỸ (TRÁI) — Model 1903000016 (gồm cả "COMBO 3 TRÁI BẮP MỸ" -> tính 3 trái)
+BAP_MY_MODEL = "1903000016"
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -301,6 +304,7 @@ def _empty_day_acc():
         "tao_cherry_hop": 0.0,
         "snack_m5t5_goi": 0.0,
         "banh_m2t1_goi": 0.0,
+        "bap_my_trai": 0.0,
     }
 
 
@@ -361,6 +365,8 @@ def _finish_day_payload(ngay_str, acc):
         # (21/11/2026) Đại tiệc snack M5T5 + bánh M2T1 — số gói khách trả tiền
         "snack_m5t5_goi": acc["snack_m5t5_goi"],
         "banh_m2t1_goi": acc["banh_m2t1_goi"],
+        # (21/11/2026) Bắp Mỹ — số trái (combo 3 tính 3)
+        "bap_my_trai": acc["bap_my_trai"],
     }
 
 
@@ -491,6 +497,10 @@ def read_category_rows_by_date(input_path):
             den_m2t1 = BANH_M2T1_DEN.get(str(row[i_model] or "").strip())
             if den_m2t1 and ngay_str and BANH_M2T1_TU <= ngay_str <= den_m2t1:
                 acc["banh_m2t1_goi"] += sl_thuc_xuat
+        # ---- (21/11/2026) BẮP MỸ (TRÁI) -> số trái ----
+        if not la_tang and i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() == BAP_MY_MODEL:
+            m_cb = re.search(r"COMBO\s*(\d+)", (str(cell("don_vi") or "") + " " + ten_sp_upper).upper())
+            acc["bap_my_trai"] += sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

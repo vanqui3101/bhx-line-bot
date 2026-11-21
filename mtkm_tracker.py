@@ -82,6 +82,10 @@ MUC_TIEU_THANG = {
             {"key": "banh", "ten": "Bánh M2T1 (gói)", "truong": "banh_m2t1_goi", "don_vi": "goi", "muc_tieu": 0,
              "cho": "thu_ngan", "chi_trong_giai_doan": True,
              "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180, "nhan": "22–30/11 · 20 gói/ngày"}]},
+            # (21/11/2026) Bắp Mỹ (trái) chỉ 21–22/11: cố định 60 trái/ngày — giao thu ngân
+            {"key": "bap", "ten": "Bắp Mỹ (trái)", "truong": "bap_my_trai", "don_vi": "trai", "muc_tieu": 0,
+             "cho": "thu_ngan", "chi_trong_giai_doan": True, "mt_ngay_co_dinh": 60,
+             "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-22", "muc_tieu": 120, "nhan": "21–22/11 · 60 trái/ngày"}]},
             # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp (giao thu ngân), mỗi ngày không dưới 12 hộp
             {"key": "tao", "ten": "Táo cherry hộp 500gr (hộp)", "truong": "tao_cherry_hop", "don_vi": "hop", "muc_tieu": 0,
              "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
@@ -212,7 +216,10 @@ def tinh_mtkm(ngay_bc_str):
         # (20/11/2026) mức sàn mỗi ngày (C2 20 lốc, táo cherry 12 hộp)
         if dong.get("san_ngay") and ngay_bc >= _d(dong.get("san_tu") or "2000-01-01"):
             mt_ngay = max(mt_ngay, dong["san_ngay"])
-        if dong["don_vi"] in ("tui", "loc", "vi", "tuyp", "hop", "goi"):
+        # (21/11/2026) mục tiêu cố định mỗi ngày trong giai đoạn (Bắp Mỹ 60 trái)
+        if gd and dong.get("mt_ngay_co_dinh"):
+            mt_ngay = dong["mt_ngay_co_dinh"]
+        if dong["don_vi"] in ("tui", "loc", "vi", "tuyp", "hop", "goi", "trai"):
             mt_ngay = math.ceil(mt_ngay - 1e-9)
         hom_nay = tn.get(ngay_bc, 0.0)
         luy_ke = sum(v for dd, v in tn.items() if dd <= ngay_bc)
@@ -290,7 +297,7 @@ def _fmt(v, don_vi):
         return f"{v / 1_000_000:.2f}".replace(".", ",") + "tr"
     if don_vi == "kg":
         return f"{v:.1f}".replace(".", ",") + "kg"
-    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ", "tuyp": "tuýp", "hop": "hộp", "goi": "gói"}.get(don_vi, "túi")
+    return f"{v:.0f} " + {"loc": "lốc", "vi": "vỉ", "tuyp": "tuýp", "hop": "hộp", "goi": "gói", "trai": "trái"}.get(don_vi, "túi")
 
 
 def tom_tat_text(kq):
