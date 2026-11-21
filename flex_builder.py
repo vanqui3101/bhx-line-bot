@@ -566,7 +566,7 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
                          _o("% tháng", cot[4], "center", MTKM_GOLD_TEXT, True, "xxs", MTKM_HL_BG)])]
         da_ghi_nhom_dem = False
         for d in dong:
-            if d["don_vi"] in ("loc", "tui", "tuyp", "hop") and not da_ghi_nhom_dem:
+            if d["don_vi"] in ("loc", "tui", "tuyp", "hop", "goi") and not da_ghi_nhom_dem:
                 da_ghi_nhom_dem = True
                 rows.append(_hang_o([_o("ĐẾM SỐ LƯỢNG", 100, "start", "#FFFFFF", True, "xxs", MTKM_SEC_BG)]))
             dat_ngay = d["pct_ngay"] >= 100
@@ -628,7 +628,7 @@ def build_category_flex_message(ngay, ten_st, payload, kq=None, gio=None):
         body.append({"type": "text", "text": "Chưa có mục tiêu MTKM cho tháng này.", "size": "sm",
                      "color": GRAY, "margin": "md", "wrap": True})
 
-    ghi = ["Đơn vị: triệu đồng (heo: kg, trứng: vỉ, C2 và Celano: lốc, táo cherry: hộp, 888: túi) · MT ngày đã dồn phần thiếu · "
+    ghi = ["Đơn vị: triệu đồng (heo: kg, trứng: vỉ, C2 và Celano: lốc, táo cherry: hộp, snack/bánh: gói trả tiền, 888: túi) · MT ngày đã dồn phần thiếu · "
            "Mục thi đua tuần (Celano có thạch 3 mã mè đen, đậu xanh, cốm dừa): % tháng là % của cả tuần thi đua"]
     ghi_do = list(kq.get("ghi_chu") or [])
     if kq.get("ngay_thieu"):

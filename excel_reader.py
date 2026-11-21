@@ -128,6 +128,28 @@ KDR_PS_MA = {
 # (20/11/2026) Táo cherry hộp 500gr — mục tiêu thu ngân tối thiểu 12 hộp/ngày từ 21/11 (đếm số hộp bán)
 TAO_CHERRY_HOP_MA = {"1232854000547", "2409000859"}
 
+# (21/11/2026) Hổ báo T11: ĐẠI TIỆC SNACK CN 22/11 (mua 5 tặng 5, đồng giá 12k) — danh sách 9 SP áp dụng 22/11.
+# Chỉ đếm GÓI KHÁCH TRẢ TIỀN (POS 76 không có dòng gói tặng): mua 5 tặng 5 -> tính 5.
+SNACK_DAI_TIEC_RE = [re.compile(p) for p in (
+    r"SWING.*NY ?STEAK", r"O'? ?STAR.*KIM ?CHI", r"O'? ?STAR.*TẢO BIỂN", r"KING MARINE", r"MASITA",
+    r"O'? ?STAR.*MAYO", r"KARAMUCHO.*PH[OÔ] ?MAI", r"O'? ?STAR.*TRỨNG MUỐI", r"KARAMUCHO.*KHOAI TÂY.*CAY")]
+
+# (21/11/2026) CTKM bánh kẹo MUA 2 TẶNG 1 (file "CTKM MUA 2 TẶNG 1 _ BÁNH KẸO _ 19.11 - 30.11") — Model -> ngày kết thúc.
+# Chỉ các mã áp dụng Miền Tây (bỏ Lotte Chocolat chỉ Miền Trung/Bắc, bỏ Poca đã hết 15/11). Đếm gói khách trả tiền.
+BANH_M2T1_DEN = {
+    # chạy tới 30/11
+    "1703000994": "2026-11-30", "1703000995": "2026-11-30", "2310000268": "2026-11-30", "2310000269": "2026-11-30",
+    "2407000053": "2026-11-30", "2411000034": "2026-11-30", "2607000805": "2026-11-30", "2304001142": "2026-11-30",
+    "2607002565": "2026-11-30", "2607002566": "2026-11-30", "2606000809": "2026-11-30", "2610000436": "2026-11-30",
+    "2610000731": "2026-11-30", "2605001484": "2026-11-30",
+    # chỉ 20/11 -> 25/11
+    "2310002450": "2026-11-25", "2309017129": "2026-11-25", "2604004517": "2026-11-25", "1803000432": "2026-11-25",
+    "1608000819": "2026-11-25", "2611003912": "2026-11-25", "2611003913": "2026-11-25", "2611003911": "2026-11-25",
+    "2609002328": "2026-11-25", "2609002338": "2026-11-25", "2405000267": "2026-11-25", "2405000268": "2026-11-25",
+    "2508002911": "2026-11-25", "2607000922": "2026-11-25", "2607000923": "2026-11-25",
+}
+BANH_M2T1_TU = "2026-11-20"
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -277,6 +299,8 @@ def _empty_day_acc():
         "celano_tien": 0.0,
         "kdr_ps_tuyp": 0.0,
         "tao_cherry_hop": 0.0,
+        "snack_m5t5_goi": 0.0,
+        "banh_m2t1_goi": 0.0,
     }
 
 
@@ -334,6 +358,9 @@ def _finish_day_payload(ngay_str, acc):
         "kdr_ps_tuyp": acc["kdr_ps_tuyp"],
         # (20/11/2026) Táo cherry hộp 500gr — số hộp bán
         "tao_cherry_hop": acc["tao_cherry_hop"],
+        # (21/11/2026) Đại tiệc snack M5T5 + bánh M2T1 — số gói khách trả tiền
+        "snack_m5t5_goi": acc["snack_m5t5_goi"],
+        "banh_m2t1_goi": acc["banh_m2t1_goi"],
     }
 
 
@@ -455,6 +482,15 @@ def read_category_rows_by_date(input_path):
                 (i_ma_sp is not None and i_ma_sp < len(row) and str(row[i_ma_sp] or "").strip() in TAO_CHERRY_HOP_MA)
                 or (i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in TAO_CHERRY_HOP_MA)):
             acc["tao_cherry_hop"] += sl_thuc_xuat
+
+        # ---- (21/11/2026) ĐẠI TIỆC SNACK (9 SP) -> số gói trả tiền ----
+        if not la_tang and ten_sp_upper.startswith("SNACK") and any(r_.search(ten_sp_upper) for r_ in SNACK_DAI_TIEC_RE):
+            acc["snack_m5t5_goi"] += sl_thuc_xuat
+        # ---- (21/11/2026) BÁNH M2T1 -> số gói trả tiền (chỉ trong thời gian CTKM của từng mã) ----
+        if not la_tang and i_model is not None and i_model < len(row):
+            den_m2t1 = BANH_M2T1_DEN.get(str(row[i_model] or "").strip())
+            if den_m2t1 and ngay_str and BANH_M2T1_TU <= ngay_str <= den_m2t1:
+                acc["banh_m2t1_goi"] += sl_thuc_xuat
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

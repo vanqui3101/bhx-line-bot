@@ -41,7 +41,8 @@ TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 # Vẫn giữ từ khoá "hmp" trong bộ đọc báo cáo để số HMP các bạn lỡ báo không bị đọc nhầm sang mục khác.
 # (08/11/2026) Tuần 2: thêm Nấm (tiền, tới hết tháng) và Kem đánh răng P/S (tuýp, thi đua 09–15/11) cho thu ngân
 # (20/11/2026) Từ 21/11: bỏ ĐMSK (sữa khô + đông mát) khỏi thu ngân, thêm Táo cherry hộp 500gr (21–28/11, min 100 hộp)
-MUC_THU_NGAN = ["sk", "dm", "tao", "nam", "celano", "c2", "ng888", "kdr"]
+# (21/11/2026) Hổ báo: Snack M5T5 (CN 22/11, 100 gói) + Bánh M2T1 (22–30/11, 20 gói/ngày) — chỉ đếm gói khách trả tiền
+MUC_THU_NGAN = ["sk", "dm", "snack", "banh", "tao", "nam", "celano", "c2", "ng888", "kdr"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -62,6 +63,9 @@ MUC = {
     "kdr": {"ten": "Kem đánh răng", "don_vi": "tuýp", "vai_tro": "thu_ngan", "truong": "kdr_ps_tuyp", "nguyen": True},
     # (20/11/2026) Táo cherry hộp 500gr (mã SP 1232854000547 / Model 2409000859) — đếm số hộp
     "tao": {"ten": "Táo cherry", "don_vi": "hộp", "vai_tro": "thu_ngan", "truong": "tao_cherry_hop", "nguyen": True},
+    # (21/11/2026) chỉ tính gói khách trả tiền (M5T5 tính 5, M2T1 tính 2), không tính gói tặng
+    "snack": {"ten": "Snack M5T5", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "snack_m5t5_goi", "nguyen": True},
+    "banh": {"ten": "Bánh M2T1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_m2t1_goi", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
     "heo": {"ten": "Heo C.P", "don_vi": "kg", "vai_tro": "fresh", "truong": "heo_cp_kg"},
@@ -76,7 +80,7 @@ MUC = {
 #      MT ngày = (59,48tr - đã bán từ 01/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay; bán dư thì ngày sau giảm.
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng",
-             "tao": "táo cherry"}
+             "tao": "táo cherry", "snack": "snack M5T5", "banh": "bánh M2T1"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
@@ -87,6 +91,12 @@ MUC_TIEU_THANG = {
         "c2": {"muc_tieu": 900, "san_ngay": 20, "san_tu": "2026-11-21"},
         # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp cả đợt, mỗi ngày không dưới 12 hộp
         #   MT ngày = (100 - đã bán từ 21/11 tới hết hôm qua) / số ngày còn lại tính cả hôm nay (thiếu thì dồn)
+        # (21/11/2026) Đại tiệc snack CN 22/11: 20 suất = 100 gói trả tiền (200 gói ra quầy) — chỉ 1 ngày
+        "snack": {"chi_trong_giai_doan": True,
+                  "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-22", "muc_tieu": 100}]},
+        # (21/11/2026) Bánh M2T1 22–30/11: 20 gói/ngày x 9 ngày = 180 gói (thiếu thì dồn)
+        "banh": {"chi_trong_giai_doan": True,
+                 "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180}]},
         "tao": {"chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
                 "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100}]},
         # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
@@ -375,6 +385,9 @@ _TU_KHOA = [
     # (08/11/2026) kem đánh răng đặt đầu để "kem" không bị hiểu sang mục khác
     ("kdr", r"kem\s*danh\s*rang|(?<![a-z0-9])kdr(?![a-z0-9])|(?<![a-z0-9])p\s?/\s?s(?![a-z0-9])|(?<![a-z0-9/])ps(?![a-z0-9])"),
     ("tao", r"tao\s*cherry|cherry|(?<![a-z0-9])tao(?![a-z0-9])"),
+    # (21/11/2026) snack đại tiệc + bánh M2T1 (không bắt "bánh tươi" — chương trình khác)
+    ("snack", r"snack|bim\s*bim|(?<![a-z0-9])m5t5(?![a-z0-9])|o\s*'?\s*star|karamucho|swing"),
+    ("banh", r"(?<![a-z0-9])m2t1(?![a-z0-9])|(?<![a-z0-9])banh(?![a-z0-9])(?!\s*tuoi)"),
     ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])|co\s*thach|(?<![a-z0-9])thach(?![a-z0-9])"),
     ("hmp", r"hoa\s*my\s*pham|hoa\s*pham|my\s*pham|(?<![a-z0-9])hmp(?![a-z0-9])"),
     ("sk", r"sua\s*kho|skho|s\.\s*kho|(?<![a-z0-9])sk(?![a-z0-9])"),
@@ -387,7 +400,7 @@ _TU_KHOA = [
 ]
 _CA_CO_DAU = re.compile(r"(?<!\w)cá(?!\w)")  # "cá" phải dò trên bản CÓ dấu (tránh "các", "ca sáng")
 _NAM_CO_DAU = re.compile(r"(?<!\w)nấm(?!\w)")  # (08/11/2026) "nấm" dò trên bản CÓ dấu (tránh "anh Nam", "năm")
-_DON_VI_DEM = r"loc|vi|hop|tuyp|tub|tui|kg|ky|ki|cay|cai|thung|chai|khay|qua|g"
+_DON_VI_DEM = r"loc|vi|hop|tuyp|tub|tui|kg|ky|ki|cay|cai|thung|chai|khay|qua|goi|suat|g"
 _SO = re.compile(
     r"(?P<a>\d+(?:[.,]\d+)?)\s*(?:tr|trieu|cu)(?![a-z])\s*(?P<b>\d+)?"     # 2tr2 · 1tr972 · 1,5tr
     r"|(?P<c>\d+(?:[.,]\d+)?)\s*(?:k|nghin|ngan)(?![a-z])"                    # 500k · 750 nghìn
@@ -396,7 +409,8 @@ _SO = re.compile(
 )
 _DON_VI_HIEN = {"loc": "lốc", "vi": "vỉ", "hop": "hộp", "tuyp": "tuýp", "tub": "tuýp", "cai": "cái",
                 "tui": "túi", "kg": "kg", "ky": "kg", "ki": "kg",
-                "cay": "cây", "thung": "thùng", "chai": "chai", "khay": "khay", "qua": "quả", "g": "g"}
+                "cay": "cây", "thung": "thùng", "chai": "chai", "khay": "khay", "qua": "quả", "g": "g",
+                "goi": "gói", "suat": "suất"}
 _TU_BAO_CAO = re.compile(r"(?<!\w)(bán|ban|bc|báo cáo|bao cao|b/c)(?!\w)")
 
 
@@ -517,6 +531,8 @@ def doc_bao_cao(text, che_doan=None):
                 gt = v / 4 if u == "hop" else v * 12
             elif u == "chai" and key == "c2":
                 gt = v / 6
+            elif u == "suat" and key in ("snack", "banh"):
+                gt = v * (5 if key == "snack" else 2)  # (21/11/2026) 1 suất snack = 5 gói trả tiền, bánh = 2
             else:
                 gt = v
         if gt is not None:
