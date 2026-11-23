@@ -113,9 +113,11 @@ MUC_TIEU_THANG = {
                                  # (16/11/2026) Tuần 3: 3 mã sữa Celano CÓ THẠCH, 10 lốc/ngày -> 70 lốc 16–22/11
                                  {"tu": "2026-11-16", "den": "2026-11-22", "muc_tieu": 70}]},
         "ng888": {"muc_tieu": 600},  # (02/11/2026) anh nâng lên 20 túi/ngày x 30 ngày (trước: 200 túi/tháng)
-        "ca": {"muc_tieu": 59_480_000},   # (06/11/2026) doanh thu cá T10 58,31tr x 102%, bỏ mục tiêu riêng tuần 1
-        "trung": {"muc_tieu": 750},
-        "heo": {"muc_tieu": 801.6},
+        # (23/11/2026) anh Quí: từ 23/11 bỏ hết mục tiêu FRESH trong lịch phân ca — Heo C.P bỏ hẳn,
+        #   Cá (thủy hải sản) + Trứng tạm ngưng, đầu tháng sau chạy lại
+        "ca": {"muc_tieu": 59_480_000, "ngung_tu": "2026-11-23"},   # (06/11/2026) doanh thu cá T10 58,31tr x 102%
+        "trung": {"muc_tieu": 750, "ngung_tu": "2026-11-23"},
+        "heo": {"muc_tieu": 801.6, "ngung_tu": "2026-11-23"},
         # (08/11/2026) anh Quí chốt: Nấm phải đạt 25tr cả tháng, giao thu ngân từ 09/11
         #   (MT ngày = 25tr - đã bán từ 01/11 tới hết hôm qua, chia số ngày còn lại)
         "nam": {"muc_tieu": 25_000_000, "ap_dung_tu": "2026-11-09"},
@@ -599,7 +601,8 @@ def tinh_chot_so(ngay_str):
     for vai_tro, ds_muc in (("thu_ngan", ch["thu_ngan"]), ("fresh", ch["fresh"])):
         dong = []
         for n in tb[vai_tro]:
-            ten_co_muc_tieu.add(n["ten"])
+            if ds_muc:  # (23/11/2026) vai trò không còn mục tiêu (Fresh) -> không tính vào "chưa báo"
+                ten_co_muc_tieu.add(n["ten"])
             bc = (bao_cao.get(n["ten"]) or {}).get("items") or {}
             bc_vt = {k: bc[k] for k in ds_muc if k in bc}
             pcts = [p for p in (_pct(bc_vt.get(k, 0), n["mt"].get(k)) for k in ds_muc) if p is not None]

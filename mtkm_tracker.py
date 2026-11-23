@@ -59,12 +59,13 @@ MUC_TIEU_THANG = {
             # (06/11/2026) Tách Cá và Trứng thành 2 dòng: Cá tính tiền, Trứng tính vỉ (như mục tiêu từng bạn)
             # (06/11/2026) Cá: doanh thu cá T10 58,31tr x 102% = 59,48tr, bỏ mục tiêu riêng tuần 1.
             # MT ngày = (59,48tr - đã bán tới hết hôm qua) / số ngày còn lại tính cả hôm nay.
+            # (23/11/2026) anh Quí: từ 23/11 bỏ Cá + Trứng (đầu tháng sau chạy lại) và bỏ hẳn Heo C.P
             {"key": "ca", "ten": "Cá (THS)", "nganh": NGANH_THUY_HAI_SAN, "don_vi": "tr",
-             "muc_tieu": 59_480_000, "cho": "fresh"},
+             "muc_tieu": 59_480_000, "cho": "fresh", "ngung_tu": "2026-11-23"},
             {"key": "trung", "ten": "Trứng (vỉ)", "truong": "trung_vi", "don_vi": "vi",
-             "muc_tieu": 750, "cho": "fresh"},
+             "muc_tieu": 750, "cho": "fresh", "ngung_tu": "2026-11-23"},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",
-             "muc_tieu": 801.6, "cho": "fresh"},
+             "muc_tieu": 801.6, "cho": "fresh", "ngung_tu": "2026-11-23"},
             # (08/11/2026) Nấm: phải đạt 25tr cả tháng, hiện từ 09/11 (lũy kế tính từ 01/11)
             {"key": "nam", "ten": "Nấm", "truong": "nam.doanh_thu", "don_vi": "tr",
              "muc_tieu": 25_000_000, "cho": "thu_ngan", "ap_dung_tu": "2026-11-09"},
@@ -170,7 +171,8 @@ def tinh_mtkm(ngay_bc_str):
         return next((g for g in dong.get("giai_doan", []) if _d(g["tu"]) <= ngay_bc <= _d(g["den"])), None)
 
     ds_dong = [dg for dg in cau_hinh["dong"] if not (dg.get("chi_trong_giai_doan") and not _gd_cua(dg))
-               and not (dg.get("ap_dung_tu") and ngay_bc < _d(dg["ap_dung_tu"]))]
+               and not (dg.get("ap_dung_tu") and ngay_bc < _d(dg["ap_dung_tu"]))
+               and not (dg.get("ngung_tu") and ngay_bc >= _d(dg["ngung_tu"]))]  # (23/11/2026) dòng đã ngưng
     for dong in ds_dong:
         if dong.get("la_tong"):
             continue
@@ -261,6 +263,8 @@ def chia_muc_tieu(dong_list, phan_line):
             continue
         ty_le = {ca: (TY_LE_CA[ca] if len(co_ca) == 2 else 1.0) for ca in co_ca}
         dong_cua_vt = [d for d in dong_list if d.get("cho") == vai_tro]
+        if not dong_cua_vt:
+            continue  # (23/11/2026) vai trò không còn mục nào (Fresh từ 23/11) -> không chia
         theo_nguoi = {}   # uid -> {"ca": [...], "mt": {key: value}}
         for ca in co_ca:
             phan = ty_le[ca] / len(ds_ca[ca])

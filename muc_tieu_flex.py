@@ -139,8 +139,14 @@ def build_the_muc_tieu(ngay_str, ch, tb):
     """ch = muc_tieu_ngay.tinh_cua_hang(ngay); tb = muc_tieu_ngay.chia_tung_ban(ch, phan_line)."""
     body = []
     chua_dk = []
+    khong_muc = []  # (23/11/2026) vai trò đang không có mục tiêu (Fresh từ 23/11) -> chỉ ghi tên, không vẽ bảng
     for vai_tro, tieu_de, ds_muc in (("thu_ngan", "THU NGÂN", ch["thu_ngan"]), ("fresh", "FRESH", ch["fresh"])):
         nguoi = sorted(tb.get(vai_tro) or [], key=lambda n: (0 if n["ca"][0] == "sang" else 1, len(n["ca"])))
+        if not ds_muc:
+            ds_t = [f"{n['ten']} ({ca_txt(n['ca'])})" for n in nguoi]
+            if ds_t:
+                khong_muc.append(tieu_de.capitalize() + ": " + " · ".join(ds_t) + " – không chia mục tiêu bán")
+            continue
         body += [_sec(tieu_de), _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro)]
         for n in nguoi:
             try:
@@ -148,6 +154,9 @@ def build_the_muc_tieu(ngay_str, ch, tb):
                     chua_dk.append(n["ten"])
             except Exception:
                 pass
+    for dong_kmt in khong_muc:
+        body.append({"type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
+                     "contents": [_t(dong_kmt, "xs", GRAY)]})
     fmcg = tb.get("fmcg") or {}
     ds_fmcg = [f"{t} ({'sáng' if ca == 'sang' else 'chiều'})" for ca in ("sang", "chieu") for t in fmcg.get(ca, [])]
     if ds_fmcg:
