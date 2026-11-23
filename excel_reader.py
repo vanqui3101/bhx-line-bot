@@ -153,6 +153,10 @@ BANH_M2T1_TU = "2026-11-20"
 # (21/11/2026) BẮP MỸ (TRÁI) — Model 1903000016 (gồm cả "COMBO 3 TRÁI BẮP MỸ" -> tính 3 trái)
 BAP_MY_MODEL = "1903000016"
 
+# (23/11/2026) TRI ÂN BÁNH TƯƠI — MUA 1 TẶNG 1 (thứ 3 hằng tuần) — 27 Model trong file "Danh sách bánh tươi KM 1+1".
+# Đếm gói khách trả tiền (gói tặng không có trong POS 76): mua 1 tặng 1 -> tính 1.
+BANH_TUOI_11_MODELS = {"1909000209", "1909000208", "2009000026", "2505001972", "2505001973", "2208001346", "2004000100", "1907001126", "2602000254", "2609003491", "2610000187", "2610000188", "2603001754", "2604000209", "2604004630", "2605002895", "2507002000", "2505002694", "2208001345", "2609004183", "1907001131", "2304001823", "2406001438", "2505002749", "2601001566", "2512000394", "2607005489"}
+
 # Cột đặc trưng của file "BC tồn theo model" (tồn kho)
 STOCK_COL = {
     "model": "Model",
@@ -305,6 +309,7 @@ def _empty_day_acc():
         "snack_m5t5_goi": 0.0,
         "banh_m2t1_goi": 0.0,
         "bap_my_trai": 0.0,
+        "banh_tuoi_goi": 0.0,
     }
 
 
@@ -367,6 +372,8 @@ def _finish_day_payload(ngay_str, acc):
         "banh_m2t1_goi": acc["banh_m2t1_goi"],
         # (21/11/2026) Bắp Mỹ — số trái (combo 3 tính 3)
         "bap_my_trai": acc["bap_my_trai"],
+        # (23/11/2026) Bánh tươi mua 1 tặng 1 — số gói trả tiền
+        "banh_tuoi_goi": acc["banh_tuoi_goi"],
     }
 
 
@@ -501,6 +508,9 @@ def read_category_rows_by_date(input_path):
         if not la_tang and i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() == BAP_MY_MODEL:
             m_cb = re.search(r"COMBO\s*(\d+)", (str(cell("don_vi") or "") + " " + ten_sp_upper).upper())
             acc["bap_my_trai"] += sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
+        # ---- (23/11/2026) BÁNH TƯƠI 1+1 -> số gói trả tiền ----
+        if not la_tang and i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in BANH_TUOI_11_MODELS:
+            acc["banh_tuoi_goi"] += sl_thuc_xuat
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):

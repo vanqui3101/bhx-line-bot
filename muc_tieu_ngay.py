@@ -43,7 +43,8 @@ TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 # (20/11/2026) Từ 21/11: bỏ ĐMSK (sữa khô + đông mát) khỏi thu ngân, thêm Táo cherry hộp 500gr (21–28/11, min 100 hộp)
 # (21/11/2026) Hổ báo: Snack M5T5 (CN 22/11, 100 gói) + Bánh M2T1 (22–30/11, 20 gói/ngày) — chỉ đếm gói khách trả tiền
 # (21/11/2026) + Bắp Mỹ 60 trái/ngày, chỉ 21–22/11 (cố định, không dồn)
-MUC_THU_NGAN = ["sk", "dm", "snack", "banh", "bap", "tao", "nam", "celano", "c2", "ng888", "kdr"]
+# (23/11/2026) + Bánh tươi mua 1 tặng 1 thứ 3 24/11: 100 gói trả tiền (= 100 suất)
+MUC_THU_NGAN = ["sk", "dm", "snack", "bt", "banh", "bap", "tao", "nam", "celano", "c2", "ng888", "kdr"]
 MUC_FRESH = ["ca", "trung", "heo"]
 
 MUC = {
@@ -68,6 +69,7 @@ MUC = {
     "snack": {"ten": "Snack M5T5", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "snack_m5t5_goi", "nguyen": True},
     "banh": {"ten": "Bánh M2T1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_m2t1_goi", "nguyen": True},
     "bap": {"ten": "Bắp Mỹ", "don_vi": "trái", "vai_tro": "thu_ngan", "truong": "bap_my_trai", "nguyen": True},
+    "bt": {"ten": "Bánh tươi 1+1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_tuoi_goi", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
     "heo": {"ten": "Heo C.P", "don_vi": "kg", "vai_tro": "fresh", "truong": "heo_cp_kg"},
@@ -83,7 +85,7 @@ MUC = {
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng",
              "tao": "táo cherry", "snack": "snack M5T5", "banh": "bánh M2T1",
-             "bap": "bắp Mỹ"}
+             "bap": "bắp Mỹ", "bt": "bánh tươi 1+1"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
@@ -103,6 +105,9 @@ MUC_TIEU_THANG = {
         # (21/11/2026) Bắp Mỹ (trái) CHỈ 21/11 + 22/11: cố định 60 trái MỖI NGÀY (không dồn) — giao thu ngân
         "bap": {"chi_trong_giai_doan": True, "mt_ngay_co_dinh": 60,
                 "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-22", "muc_tieu": 120}]},
+        # (23/11/2026) Tri ân bánh tươi M1T1 thứ 3 24/11: 100 suất = 100 gói trả tiền (200 gói ra quầy) — chỉ 1 ngày
+        "bt": {"chi_trong_giai_doan": True,
+               "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-24", "muc_tieu": 100}]},
         "tao": {"chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
                 "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100}]},
         # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
@@ -398,6 +403,7 @@ _TU_KHOA = [
     ("tao", r"tao\s*cherry|cherry|(?<![a-z0-9])tao(?![a-z0-9])"),
     # (21/11/2026) snack đại tiệc + bánh M2T1 (không bắt "bánh tươi" — chương trình khác)
     ("snack", r"snack|bim\s*bim|(?<![a-z0-9])m5t5(?![a-z0-9])|o\s*'?\s*star|karamucho|swing"),
+    ("bt", r"banh\s*tuoi|(?<![a-z0-9])bt(?![a-z0-9])|(?<![a-z0-9])m1t1(?![a-z0-9])"),
     ("bap", r"bap\s*my|(?<![a-z0-9])bap(?![a-z0-9])"),
     ("banh", r"(?<![a-z0-9])m2t1(?![a-z0-9])|(?<![a-z0-9])banh(?![a-z0-9])(?!\s*tuoi)"),
     ("celano", r"celano|(?<![a-z0-9])cel(?![a-z0-9])|co\s*thach|(?<![a-z0-9])thach(?![a-z0-9])"),
