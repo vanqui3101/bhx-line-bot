@@ -148,6 +148,14 @@ def build_the_muc_tieu(ngay_str, ch, tb):
                 khong_muc.append(tieu_de.capitalize() + ": " + " · ".join(ds_t) + " – không chia mục tiêu bán")
             continue
         body += [_sec(tieu_de), _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro)]
+        if "rau" in ds_muc:
+            # (23/11/2026) anh Quí: ghi rõ để các bạn không hiểu lầm loại rau được tính
+            body.append({"type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
+                         "backgroundColor": "#FFF4E5", "contents": [
+                             _t("⚠ Rau lá: CHỈ tính rau GÓI 500g và 300g", "xs", RED, True),
+                             _t("Gói 500g: cải thìa, cải ngọt, rau muống, cải bẹ xanh, mồng tơi, cải bẹ dún, rau dền, rau lang"
+                                " · Gói 300g: xà lách lolo, xà lách búp mỡ, tần ô", "xxs", GRAY),
+                             _t("KHÔNG tính: rau cân ký, bún tươi, giá, rau củ khác", "xxs", GRAY)]})
         for n in nguoi:
             try:
                 if not storage.get_user_id_da_dang_ky(n["ten"]) and n["ten"] not in chua_dk:

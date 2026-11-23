@@ -84,7 +84,7 @@ MUC_TIEU_THANG = {
              "cho": "thu_ngan", "chi_trong_giai_doan": True,
              "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180, "nhan": "22–30/11 · 20 gói/ngày"}]},
             # (23/11/2026) Rau lá gói 500g/300g 24–30/11: min 40 gói/ngày (Fresh — chia từng bạn ở thẻ mục tiêu ngày)
-            {"key": "rau", "ten": "Rau lá gói (gói)", "truong": "rau_la_goi", "don_vi": "goi", "muc_tieu": 0,
+            {"key": "rau", "ten": "Rau lá gói 500g/300g (gói)", "truong": "rau_la_goi", "don_vi": "goi", "muc_tieu": 0,
              "chi_trong_giai_doan": True, "mt_ngay_co_dinh": 40,
              "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-30", "muc_tieu": 280, "nhan": "24–30/11 · 40 gói/ngày"}]},
             # (23/11/2026) Tri ân bánh tươi M1T1 thứ 3 24/11: 100 gói trả tiền — giao thu ngân

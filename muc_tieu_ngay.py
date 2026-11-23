@@ -70,7 +70,7 @@ MUC = {
     "snack": {"ten": "Snack M5T5", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "snack_m5t5_goi", "nguyen": True},
     "banh": {"ten": "Bánh M2T1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_m2t1_goi", "nguyen": True},
     "bap": {"ten": "Bắp Mỹ", "don_vi": "trái", "vai_tro": "thu_ngan", "truong": "bap_my_trai", "nguyen": True},
-    "rau": {"ten": "Rau lá gói", "don_vi": "gói", "vai_tro": "fresh", "truong": "rau_la_goi", "nguyen": True},
+    "rau": {"ten": "Rau lá gói 500g/300g", "don_vi": "gói", "vai_tro": "fresh", "truong": "rau_la_goi", "nguyen": True},
     "bt": {"ten": "Bánh tươi 1+1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_tuoi_goi", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
