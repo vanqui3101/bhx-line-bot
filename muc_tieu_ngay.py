@@ -114,7 +114,8 @@ MUC_TIEU_THANG = {
                 "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-30", "muc_tieu": 280}]},
         "bt": {"chi_trong_giai_doan": True,
                "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-24", "muc_tieu": 100}]},
-        "tao": {"chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
+        # (23/11/2026) anh Quí nâng sàn táo lên 14 hộp/ngày từ 24/11 (trước: 12)
+        "tao": {"chi_trong_giai_doan": True, "san_ngay": 14, "san_tu": "2026-11-24",
                 "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100}]},
         # Thi đua Celano KV anh Nam: chu kỳ 02–08/11, mục tiêu 6.015.000đ (= 1,5 lần doanh thu T10 4,01tr)
         # quy ra 183 lốc theo giá TB T10 32.866đ/lốc. Chỉ tính trong chu kỳ.

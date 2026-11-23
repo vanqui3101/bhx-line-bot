@@ -97,7 +97,7 @@ MUC_TIEU_THANG = {
              "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-22", "muc_tieu": 120, "nhan": "21–22/11 · 60 trái/ngày"}]},
             # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp (giao thu ngân), mỗi ngày không dưới 12 hộp
             {"key": "tao", "ten": "Táo cherry hộp 500gr (hộp)", "truong": "tao_cherry_hop", "don_vi": "hop", "muc_tieu": 0,
-             "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
+             "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 14, "san_tu": "2026-11-24",  # (23/11) sàn 14 hộp
              "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100, "nhan": "Chạy 21–28/11 · min 100 hộp"}]},
             # (20/11/2026) C2 đã vượt 900 lốc -> từ 21/11 vẫn giữ sàn 20 lốc/ngày
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900,
