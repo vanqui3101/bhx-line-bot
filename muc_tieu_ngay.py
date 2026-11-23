@@ -45,7 +45,8 @@ TEN_NHAN_VIEN = ["Mi", "Quyên", "Sang", "Thi", "Ánh", "Linh", "Tiền", "Son"]
 # (21/11/2026) + Bắp Mỹ 60 trái/ngày, chỉ 21–22/11 (cố định, không dồn)
 # (23/11/2026) + Bánh tươi mua 1 tặng 1 thứ 3 24/11: 100 gói trả tiền (= 100 suất)
 MUC_THU_NGAN = ["sk", "dm", "snack", "bt", "banh", "bap", "tao", "nam", "celano", "c2", "ng888", "kdr"]
-MUC_FRESH = ["ca", "trung", "heo"]
+# (23/11/2026) Fresh từ 24/11 chỉ bán RAU LÁ gói 500g/300g (min 40 gói/ngày); cá/trứng/heo đã ngưng
+MUC_FRESH = ["rau", "ca", "trung", "heo"]
 
 MUC = {
     "sk": {"ten": "Sữa khô", "don_vi": "tr", "vai_tro": "thu_ngan",
@@ -69,6 +70,7 @@ MUC = {
     "snack": {"ten": "Snack M5T5", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "snack_m5t5_goi", "nguyen": True},
     "banh": {"ten": "Bánh M2T1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_m2t1_goi", "nguyen": True},
     "bap": {"ten": "Bắp Mỹ", "don_vi": "trái", "vai_tro": "thu_ngan", "truong": "bap_my_trai", "nguyen": True},
+    "rau": {"ten": "Rau lá gói", "don_vi": "gói", "vai_tro": "fresh", "truong": "rau_la_goi", "nguyen": True},
     "bt": {"ten": "Bánh tươi 1+1", "don_vi": "gói", "vai_tro": "thu_ngan", "truong": "banh_tuoi_goi", "nguyen": True},
     "ca": {"ten": "Cá", "don_vi": "tr", "vai_tro": "fresh", "nganh": ["Thủy hải sản các loại"]},
     "trung": {"ten": "Trứng", "don_vi": "vỉ", "vai_tro": "fresh", "truong": "trung_vi", "nguyen": True},
@@ -85,7 +87,8 @@ MUC = {
 NHAN_NGAN = {"sk": "sữa khô", "celano": "Celano", "dm": "đông mát", "hmp": "hóa mỹ phẩm", "c2": "C2", "ng888": "888",
              "ca": "cá", "trung": "trứng", "heo": "heo C.P", "nam": "nấm", "kdr": "kem đánh răng",
              "tao": "táo cherry", "snack": "snack M5T5", "banh": "bánh M2T1",
-             "bap": "bắp Mỹ", "bt": "bánh tươi 1+1"}
+             "bap": "bắp Mỹ", "bt": "bánh tươi 1+1",
+             "rau": "rau lá"}
 
 MUC_TIEU_THANG = {
     "2026-11": {
@@ -106,6 +109,9 @@ MUC_TIEU_THANG = {
         "bap": {"chi_trong_giai_doan": True, "mt_ngay_co_dinh": 60,
                 "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-22", "muc_tieu": 120}]},
         # (23/11/2026) Tri ân bánh tươi M1T1 thứ 3 24/11: 100 suất = 100 gói trả tiền (200 gói ra quầy) — chỉ 1 ngày
+        # (23/11/2026) Fresh: rau lá gói 500g/300g, cố định tối thiểu 40 gói MỖI NGÀY 24–30/11 (không dồn — rau không để qua ngày)
+        "rau": {"chi_trong_giai_doan": True, "mt_ngay_co_dinh": 40,
+                "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-30", "muc_tieu": 280}]},
         "bt": {"chi_trong_giai_doan": True,
                "giai_doan": [{"tu": "2026-11-24", "den": "2026-11-24", "muc_tieu": 100}]},
         "tao": {"chi_trong_giai_doan": True, "san_ngay": 12, "san_tu": "2026-11-21",
@@ -403,6 +409,7 @@ _TU_KHOA = [
     ("tao", r"tao\s*cherry|cherry|(?<![a-z0-9])tao(?![a-z0-9])"),
     # (21/11/2026) snack đại tiệc + bánh M2T1 (không bắt "bánh tươi" — chương trình khác)
     ("snack", r"snack|bim\s*bim|(?<![a-z0-9])m5t5(?![a-z0-9])|o\s*'?\s*star|karamucho|swing"),
+    ("rau", r"rau\s*la|(?<![a-z0-9])rau(?![a-z0-9])(?!\s*cau)"),
     ("bt", r"banh\s*tuoi|(?<![a-z0-9])bt(?![a-z0-9])|(?<![a-z0-9])m1t1(?![a-z0-9])"),
     ("bap", r"bap\s*my|(?<![a-z0-9])bap(?![a-z0-9])"),
     ("banh", r"(?<![a-z0-9])m2t1(?![a-z0-9])|(?<![a-z0-9])banh(?![a-z0-9])(?!\s*tuoi)"),
