@@ -81,8 +81,8 @@ MUC_TIEU_THANG = {
              "cho": "thu_ngan", "chi_trong_giai_doan": True,
              "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-22", "muc_tieu": 100, "nhan": "Đại tiệc CN 22/11 · 20 suất"}]},
             {"key": "banh", "ten": "Bánh M2T1 (gói)", "truong": "banh_m2t1_goi", "don_vi": "goi", "muc_tieu": 0,
-             "cho": "thu_ngan", "chi_trong_giai_doan": True,
-             "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180, "nhan": "22–30/11 · 20 gói/ngày"}]},
+             "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 30, "san_tu": "2026-11-27",  # (27/11) sàn 30 gói
+             "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180, "nhan": "22–30/11 · từ 27/11 tối thiểu 30 gói/ngày"}]},
             # (23/11/2026) Rau lá gói 500g/300g 24–30/11: min 40 gói/ngày (Fresh — chia từng bạn ở thẻ mục tiêu ngày)
             {"key": "rau", "ten": "Rau lá gói 500g/300g (gói)", "truong": "rau_la_goi", "don_vi": "goi", "muc_tieu": 0,
              "chi_trong_giai_doan": True, "mt_ngay_co_dinh": 40,

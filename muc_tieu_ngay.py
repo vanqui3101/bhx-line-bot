@@ -103,7 +103,8 @@ MUC_TIEU_THANG = {
         "snack": {"chi_trong_giai_doan": True,
                   "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-22", "muc_tieu": 100}]},
         # (21/11/2026) Bánh M2T1 22–30/11: 20 gói/ngày x 9 ngày = 180 gói (thiếu thì dồn)
-        "banh": {"chi_trong_giai_doan": True,
+        # (27/11/2026) bán vượt nên phần dồn còn lại quá thấp (3 gói/bạn) -> anh Quí chốt sàn 30 gói/ngày từ 27/11
+        "banh": {"chi_trong_giai_doan": True, "san_ngay": 30, "san_tu": "2026-11-27",
                  "giai_doan": [{"tu": "2026-11-22", "den": "2026-11-30", "muc_tieu": 180}]},
         # (21/11/2026) Bắp Mỹ (trái) CHỈ 21/11 + 22/11: cố định 60 trái MỖI NGÀY (không dồn) — giao thu ngân
         "bap": {"chi_trong_giai_doan": True, "mt_ngay_co_dinh": 60,
