@@ -5,13 +5,11 @@ TỒN KHO DÀI HẠN (TKDH) — 27/11/2026, anh Quí.
   Mỗi mã có: tồn ST chốt 26/11, SL cần duy trì (cần giữ), SL cần xử lý.
 - Anh Quí: KHÔNG chạy theo tuần (tuần 1 nước, tuần 2 hóa phẩm…) — chạy TẤT CẢ 20 mã cùng lúc cho tới khi xử lý hết
   phần cần xử lý (tồn về mức "cần giữ").
-- (27/11/2026 18:46) Tồn mốc lấy từ POS 322 thật (không tính hàng đi đường). Anh Quí: hàng này KHÔNG điều chuyển,
-  chỉ bán tại siêu thị -> mỗi ngày chỉ cần nạp POS 76, bot trừ số bán từ 28/11.
-  (Coke Sleek: file công ty ghi tồn 4.320 lon nhưng POS 322 thật chỉ 335 lon -> dùng số POS.)
-- Tồn hôm nay:
-    * Nếu sau này có file POS 322 (BC tồn theo model) nạp từ 28/11 trở đi -> lấy tồn trong file đó, rồi trừ tiếp số
-      bán POS 76 của các ngày SAU ngày file tồn.
-    * Nếu không -> tồn mốc 27/11 trừ số bán POS 76 từ 28/11.
+- SL cần xử lý = theo file công ty (tồn chốt 26/11 − mức cần giữ) -> bán từ 27/11 là bắt đầu tính đã xử lý.
+- Anh Quí: hàng này KHÔNG điều chuyển, chỉ bán tại siêu thị -> mỗi ngày chỉ cần nạp POS 76.
+- Tồn hôm nay = tồn POS 322 mới nhất (mốc có sẵn: 18:46 27/11, Claude lấy trên POS — Coke Sleek 27/11 bán 99 thùng
+  đơn BHX Online nên còn 335 lon) trừ số bán POS 76 các ngày SAU ngày mốc. Nếu sau này anh gửi thêm file POS 322 thì
+  bot lấy mốc mới.
 - Còn phải xử lý = max(tồn hôm nay − cần giữ, 0). Mã nào về 0 là XONG.
 - Lệnh: "TKDH" / "TỒN KHO DÀI HẠN".
 """
@@ -20,14 +18,13 @@ from datetime import datetime, timedelta
 import storage
 
 MA_ST = "8363"
-NGAY_CHOT = "2026-11-27"      # tồn mốc POS 322 lúc 18:46 27/11
-GIO_CHOT = "18:46"
-TINH_TU = "2026-11-28"        # bắt đầu trừ số bán POS 76
+NGAY_CHOT = "2026-11-26"      # tồn đầu kỳ trong file TKDH
+TINH_TU = "2026-11-27"        # bắt đầu tính số đã xử lý
 
-# model: (tên ngắn, ngành, trạng thái, quy cách thùng, tồn mốc 27/11 (POS 322), cần giữ (file công ty), cần xử lý = tồn − cần giữ)
+# model: (tên ngắn, ngành, trạng thái, quy cách thùng, tồn chốt 26/11 (file), cần giữ, cần xử lý (file))
 DANH_SACH = {
-    "1607002279": ("Coke Sleek lon 330ml", "nuoc", "KD", 24, 335, 89, 246),
-    "1607002399": ("Nutri Boost dâu 297ml", "nuoc", "KD", 24, 1628, 48, 1580),
+    "1607002279": ("Coke Sleek lon 330ml", "nuoc", "KD", 24, 4320, 89, 4231),
+    "1607002399": ("Nutri Boost dâu 297ml", "nuoc", "KD", 24, 1629, 48, 1581),
     "1607002175": ("C2 chanh 500ml", "nuoc", "KD", 24, 1033, 95, 938),
     "1607002398": ("Nutri Boost cam 297ml", "nuoc", "KD", 24, 493, 11, 482),
     "2604001002": ("Nước mắm cá hồi D-Shining 500ml", "thuc_pham", "Xả tồn", 12, 150, 7, 143),
@@ -49,7 +46,14 @@ DANH_SACH = {
 }
 NGANH = [("nuoc", "THỨC UỐNG GIẢI KHÁT"), ("thuc_pham", "THỰC PHẨM - GIA VỊ"),
          ("my_pham", "MỸ PHẨM"), ("hoa_pham", "HÓA PHẨM")]
-QUY_CACH = {m: v[3] for m, v in DANH_SACH.items()}   # excel_reader dùng để quy THÙNG -> đơn vị lẻ
+QUY_CACH = {m: v[3] for m, v in DANH_SACH.items()}
+
+# (27/11/2026) Mốc tồn thật POS 322 lúc 18:46 27/11 (không tính hàng đi đường) — dùng khi chưa có file POS 322 mới hơn
+NGAY_MOC, GIO_MOC = "2026-11-27", "18:46"
+TON_MOC = {"1607002279": 335, "1607002399": 1628, "1607002175": 1033, "1607002398": 493, "2604001002": 150,
+           "1802001090": 109, "1709000610": 143, "1712000577": 71, "1607000580": 42, "1812002489": 68,
+           "2307003356": 40, "2307003361": 44, "1703001335": 47, "2307003355": 38, "1806000066": 203,
+           "1607000568": 82, "1607004723": 45, "2605001355": 36, "2309017023": 36, "2001000002": 31}   # excel_reader dùng để quy THÙNG -> đơn vị lẻ
 
 
 def he_so_don_vi(model, don_vi):
@@ -93,9 +97,9 @@ def luu_ton(stock_payload, ngay_str, gio=None):
 def _ton_moi_nhat():
     conn = _conn()
     row = conn.execute("SELECT MAX(ngay) FROM tkdh_ton WHERE ngay >= ?", (TINH_TU,)).fetchone()
-    if not row or not row[0]:
+    if not row or not row[0] or row[0] < NGAY_MOC:
         conn.close()
-        return None, None, {}
+        return NGAY_MOC, GIO_MOC, dict(TON_MOC)
     ngay = row[0]
     rs = conn.execute("SELECT model, ton, gio FROM tkdh_ton WHERE ngay = ?", (ngay,)).fetchall()
     conn.close()
@@ -122,6 +126,8 @@ def tinh(hom_nay_str):
     so_den = max(ban_ngay) if ban_ngay else None
 
     ngay_ton, gio_ton, ton_file = _ton_moi_nhat()
+    if ngay_ton:  # ngày đã nằm trong mốc tồn POS 322 thì không cần số bán POS 76 nữa
+        thieu = [t for t in thieu if datetime.strptime(t + "/" + hom_nay_str[:4], "%d/%m/%Y").strftime("%Y-%m-%d") > ngay_ton]
     dong = []
     for m, (ten, nganh, tt, qc, ton_dau, can_giu, can_xl) in DANH_SACH.items():
         if ngay_ton and m in ton_file:
@@ -194,8 +200,10 @@ def build_the(kq):
     # nhận xét
     nuoc = [x for x in kq["dong"] if x["nganh"] == "nuoc"]
     can_nuoc = sum(x["can_xl"] for x in nuoc)
-    nx = (f"4 mã nước chiếm {can_nuoc / kq['tong_can'] * 100:.0f}% lượng cần xử lý "
-          f"({so(sum(x['con'] for x in nuoc))} chai/lon còn lại) – chỉ bán tại siêu thị nên phải chưng ụ lớn ngay "
+    con_tong = sum(x["con"] for x in kq["dong"])
+    nx = (f"Còn {so(con_tong)} phải xử lý, trong đó 4 mã nước chiếm "
+          f"{(sum(x['con'] for x in nuoc) / con_tong * 100) if con_tong else 0:.0f}% "
+          f"({so(sum(x['con'] for x in nuoc))} chai/lon) – chỉ bán tại siêu thị nên phải chưng ụ lớn ngay "
           "quầy thu ngân + mời từng khách (C2 chanh còn cộng luôn vào mục tiêu C2). "
           "Các mã gia vị, mỹ phẩm nhỏ: chưng ụ + mời tại quầy là hết.") if kq["tong_can"] else ""
     if nx:
@@ -205,7 +213,7 @@ def build_the(kq):
         nguon.append(f"tồn POS 322 ngày {_d(kq['ngay_ton']).strftime('%d/%m')}"
                      + (f" {kq['gio_ton']}" if kq.get("gio_ton") else ""))
     else:
-        nguon.append(f"tồn mốc POS 322 {GIO_CHOT} {_d(NGAY_CHOT).strftime('%d/%m')} trừ số bán")
+        nguon.append("tồn chốt 26/11 (file công ty) trừ số bán")
     if kq["so_den"]:
         nguon.append(f"bán POS 76 đến {_d(kq['so_den']).strftime('%d/%m')}")
     body2.append(mb._ghi_chu("SL cần xử lý = tồn mốc − mức cần giữ (file công ty) · Tỉ lệ hoàn thành = SL đã xử lý ÷ SL cần xử lý · "
