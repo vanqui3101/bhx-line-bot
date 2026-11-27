@@ -161,28 +161,31 @@ def build_the(kq):
                                    f"{'…' if len(kq['thieu']) > 8 else ''} – đang tính là chưa bán, anh nạp thêm "
                                    "file POS 76 các ngày này"]))
     p_tong = kq["tong_da"] / kq["tong_can"] * 100 if kq["tong_can"] else 0
-    w0 = (40, 30, 30)
-    body += [_sec("TỔNG 20 MÃ · CHẠY TẤT CẢ ĐẾN HẾT TỒN"),
-             mb._bang([_hang([_o_tieu_de(["Đã xử lý xong"], w0[0], "start"), _o_tieu_de(["Cần xử lý"], w0[1], "end"),
-                              _o_tieu_de(["Đã xử lý"], w0[2], "end")], MTKM_HL_BG, "4px"),
-                       _hang([_t(f"{kq['so_xong']}/{len(kq['dong'])} mã", "sm", BLACK, True, flex=w0[0]),
-                              _t(so(kq["tong_can"]), "sm", GRAY, False, "end", w0[1]),
-                              _t(f"{so(kq['tong_da'])} ({p_tong:.0f}%)", "sm", mau(p_tong), True, "end", w0[2])],
-                             NEN_TONG, "4px")])]
+    # (27/11/2026) anh Quí: 3 cột SL cần xử lý · SL đã xử lý · Tỉ lệ hoàn thành
     w = (40, 20, 20, 20)
+    body += [_sec(f"TỔNG 20 MÃ · XONG {kq['so_xong']}/{len(kq['dong'])} MÃ"),
+             mb._bang([_hang([_o_tieu_de(["Tổng"], w[0], "start"), _o_tieu_de(["SL cần", "xử lý"], w[1], "end"),
+                              _o_tieu_de(["SL đã", "xử lý"], w[2], "end"), _o_tieu_de(["Tỉ lệ", "hoàn thành"], w[3], "end")],
+                             MTKM_HL_BG, "4px"),
+                       _hang([_t("20 mã", "sm", BLACK, True, flex=w[0]),
+                              _t(so(kq["tong_can"]), "sm", GRAY, False, "end", w[1]),
+                              _t(so(kq["tong_da"]), "sm", BLACK, True, "end", w[2]),
+                              _t(f"{p_tong:.1f}%".replace(".", ","), "sm", mau(p_tong), True, "end", w[3])],
+                             NEN_TONG, "4px")])]
     body2 = []
     for nk, ten_ng in NGANH:
-        ds = sorted([x for x in kq["dong"] if x["nganh"] == nk and not x["xong"]], key=lambda x: -x["con"])
+        ds = sorted([x for x in kq["dong"] if x["nganh"] == nk and not x["xong"]], key=lambda x: -x["can_xl"])
         if not ds:
             continue
-        rows = [_hang([_o_tieu_de(["Sản phẩm"], w[0], "start"), _o_tieu_de(["Cần XL"], w[1], "end"),
-                       _o_tieu_de(["Đã XL"], w[2], "end"), _o_tieu_de(["Còn"], w[3], "end")], MTKM_HL_BG, "4px")]
+        rows = [_hang([_o_tieu_de(["Sản phẩm"], w[0], "start"), _o_tieu_de(["SL cần", "xử lý"], w[1], "end"),
+                       _o_tieu_de(["SL đã", "xử lý"], w[2], "end"), _o_tieu_de(["Tỉ lệ", "hoàn thành"], w[3], "end")],
+                      MTKM_HL_BG, "4px")]
         for x in ds:
             nhan = x["ten"] + (f" ({x['tt']})" if x["tt"] != "KD" else "")
             rows.append(_hang([_t(nhan, "xs", MTKM_GOLD_TEXT, True, flex=w[0]),
                                _t(so(x["can_xl"]), "xs", GRAY, False, "end", w[1]),
-                               _t(so(x["da"]), "xs", mau(x["pct"]), True, "end", w[2]),
-                               _t(so(x["con"]), "xs", BLACK, True, "end", w[3])], None, "4px"))
+                               _t(so(x["da"]), "xs", BLACK, True, "end", w[2]),
+                               _t(f"{x['pct']:.0f}%", "xs", mau(x["pct"]), True, "end", w[3])], None, "4px"))
         (body if nk in ("nuoc", "thuc_pham") else body2).extend([_sec(f"{ten_ng} · {len(ds)} mã"), mb._bang(rows)])
     # thẻ 1: tổng + nước + thực phẩm; thẻ 2: mỹ phẩm, hóa phẩm, ghi chú
     xong = [x for x in kq["dong"] if x["xong"]]
@@ -205,7 +208,7 @@ def build_the(kq):
         nguon.append(f"tồn mốc POS 322 {GIO_CHOT} {_d(NGAY_CHOT).strftime('%d/%m')} trừ số bán")
     if kq["so_den"]:
         nguon.append(f"bán POS 76 đến {_d(kq['so_den']).strftime('%d/%m')}")
-    body2.append(mb._ghi_chu("Cần XL = phần phải xử lý để tồn về mức cần giữ (file công ty) · Còn = còn phải xử lý · "
+    body2.append(mb._ghi_chu("SL cần xử lý = tồn mốc − mức cần giữ (file công ty) · Tỉ lệ hoàn thành = SL đã xử lý ÷ SL cần xử lý · "
                             "Nguồn: " + " · ".join(nguon) + ". Mỗi ngày chỉ cần nạp POS 76."))
     phu = f"Ngày {_d(kq['ngay']).strftime('%d/%m/%Y')} · 20 mã · không chia tuần, chạy đến hết tồn"
     # (27/11/2026) 1 thẻ vượt giới hạn 30KB của LINE -> tách 2 thẻ (vuốt ngang)
