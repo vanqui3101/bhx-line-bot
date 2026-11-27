@@ -5,10 +5,13 @@ TỒN KHO DÀI HẠN (TKDH) — 27/11/2026, anh Quí.
   Mỗi mã có: tồn ST chốt 26/11, SL cần duy trì (cần giữ), SL cần xử lý.
 - Anh Quí: KHÔNG chạy theo tuần (tuần 1 nước, tuần 2 hóa phẩm…) — chạy TẤT CẢ 20 mã cùng lúc cho tới khi xử lý hết
   phần cần xử lý (tồn về mức "cần giữ").
+- (27/11/2026 18:46) Tồn mốc lấy từ POS 322 thật (không tính hàng đi đường). Anh Quí: hàng này KHÔNG điều chuyển,
+  chỉ bán tại siêu thị -> mỗi ngày chỉ cần nạp POS 76, bot trừ số bán từ 28/11.
+  (Coke Sleek: file công ty ghi tồn 4.320 lon nhưng POS 322 thật chỉ 335 lon -> dùng số POS.)
 - Tồn hôm nay:
-    * Nếu có file POS 322 (BC tồn theo model) nạp từ 27/11 trở đi -> lấy tồn trong file đó (tồn thật, đã tính cả
-      cân hàng/điều chuyển/hủy), rồi trừ tiếp số bán POS 76 của các ngày SAU ngày file tồn.
-    * Nếu chưa có -> tồn chốt 26/11 trừ số bán POS 76 từ 27/11.
+    * Nếu sau này có file POS 322 (BC tồn theo model) nạp từ 28/11 trở đi -> lấy tồn trong file đó, rồi trừ tiếp số
+      bán POS 76 của các ngày SAU ngày file tồn.
+    * Nếu không -> tồn mốc 27/11 trừ số bán POS 76 từ 28/11.
 - Còn phải xử lý = max(tồn hôm nay − cần giữ, 0). Mã nào về 0 là XONG.
 - Lệnh: "TKDH" / "TỒN KHO DÀI HẠN".
 """
@@ -17,13 +20,14 @@ from datetime import datetime, timedelta
 import storage
 
 MA_ST = "8363"
-NGAY_CHOT = "2026-11-26"      # tồn đầu kỳ trong file TKDH
-TINH_TU = "2026-11-27"        # bắt đầu tính số đã xử lý
+NGAY_CHOT = "2026-11-27"      # tồn mốc POS 322 lúc 18:46 27/11
+GIO_CHOT = "18:46"
+TINH_TU = "2026-11-28"        # bắt đầu trừ số bán POS 76
 
-# model: (tên ngắn, ngành, trạng thái, quy cách thùng, tồn chốt 26/11, cần giữ, cần xử lý)
+# model: (tên ngắn, ngành, trạng thái, quy cách thùng, tồn mốc 27/11 (POS 322), cần giữ (file công ty), cần xử lý = tồn − cần giữ)
 DANH_SACH = {
-    "1607002279": ("Coke Sleek lon 330ml", "nuoc", "KD", 24, 4320, 89, 4231),
-    "1607002399": ("Nutri Boost dâu 297ml", "nuoc", "KD", 24, 1629, 48, 1581),
+    "1607002279": ("Coke Sleek lon 330ml", "nuoc", "KD", 24, 335, 89, 246),
+    "1607002399": ("Nutri Boost dâu 297ml", "nuoc", "KD", 24, 1628, 48, 1580),
     "1607002175": ("C2 chanh 500ml", "nuoc", "KD", 24, 1033, 95, 938),
     "1607002398": ("Nutri Boost cam 297ml", "nuoc", "KD", 24, 493, 11, 482),
     "2604001002": ("Nước mắm cá hồi D-Shining 500ml", "thuc_pham", "Xả tồn", 12, 150, 7, 143),
@@ -188,7 +192,8 @@ def build_the(kq):
     nuoc = [x for x in kq["dong"] if x["nganh"] == "nuoc"]
     can_nuoc = sum(x["can_xl"] for x in nuoc)
     nx = (f"4 mã nước chiếm {can_nuoc / kq['tong_can'] * 100:.0f}% lượng cần xử lý "
-          f"({so(sum(x['con'] for x in nuoc))} chai/lon còn lại) – bán lẻ không kịp, cần xin cân hàng / điều chuyển. "
+          f"({so(sum(x['con'] for x in nuoc))} chai/lon còn lại) – chỉ bán tại siêu thị nên phải chưng ụ lớn ngay "
+          "quầy thu ngân + mời từng khách (C2 chanh còn cộng luôn vào mục tiêu C2). "
           "Các mã gia vị, mỹ phẩm nhỏ: chưng ụ + mời tại quầy là hết.") if kq["tong_can"] else ""
     if nx:
         body2.append(mb._nhan_xet(nx))
@@ -197,11 +202,11 @@ def build_the(kq):
         nguon.append(f"tồn POS 322 ngày {_d(kq['ngay_ton']).strftime('%d/%m')}"
                      + (f" {kq['gio_ton']}" if kq.get("gio_ton") else ""))
     else:
-        nguon.append("tồn chốt 26/11 (file TKDH) trừ số bán")
+        nguon.append(f"tồn mốc POS 322 {GIO_CHOT} {_d(NGAY_CHOT).strftime('%d/%m')} trừ số bán")
     if kq["so_den"]:
         nguon.append(f"bán POS 76 đến {_d(kq['so_den']).strftime('%d/%m')}")
     body2.append(mb._ghi_chu("Cần XL = phần phải xử lý để tồn về mức cần giữ (file công ty) · Còn = còn phải xử lý · "
-                            "Nguồn: " + " · ".join(nguon) + ". Gửi file POS 322 (tồn theo model) để bot lấy tồn thật."))
+                            "Nguồn: " + " · ".join(nguon) + ". Mỗi ngày chỉ cần nạp POS 76."))
     phu = f"Ngày {_d(kq['ngay']).strftime('%d/%m/%Y')} · 20 mã · không chia tuần, chạy đến hết tồn"
     # (27/11/2026) 1 thẻ vượt giới hạn 30KB của LINE -> tách 2 thẻ (vuốt ngang)
     return [_bubble("TỒN KHO DÀI HẠN · 8363 (1/2)", [phu], body),
