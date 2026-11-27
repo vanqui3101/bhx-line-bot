@@ -62,8 +62,14 @@ MUC_TIEU_THANG = {
             # (23/11/2026) anh Quí: từ 23/11 bỏ Cá + Trứng (đầu tháng sau chạy lại) và bỏ hẳn Heo C.P
             {"key": "ca", "ten": "Cá (THS)", "nganh": NGANH_THUY_HAI_SAN, "don_vi": "tr",
              "muc_tieu": 59_480_000, "cho": "fresh", "ngung_tu": "2026-11-23"},
+            # (27/11/2026) anh Quí: chạy lại TRỨNG 28–30/11 — bán HẾT tồn, chung thu ngân + fresh. Mục tiêu = tồn cuối ngày 27/11, thiếu thì dồn. Trước 23/11 giữ mục tiêu tháng cũ.
             {"key": "trung", "ten": "Trứng (vỉ)", "truong": "trung_vi", "don_vi": "vi",
-             "muc_tieu": 750, "cho": "fresh", "ngung_tu": "2026-11-23"},
+             "muc_tieu": 750, "cho": "chung", "chi_trong_giai_doan": "2026-11-23",
+             "san_ngay": 30, "san_tu": "2026-11-28",  # (27/11 19h55) tối thiểu 30 vỉ/ngày
+             # (27/11/2026 19h49) anh Quí chốt: CHỈ trứng gà hộp 10 — tồn 19h26 75 hộp, lúc đó đã bán 35
+             "giai_doan": [{"tu": "2026-11-28", "den": "2026-11-30", "nhan": "Xả tồn 28–30/11 · min 30 vỉ/ngày · chung TN + fresh",
+                            "ten": "Trứng gà hộp 10 (vỉ)", "truong": "trung_ga10.hop",
+                            "ton_moc": {"ngay": "2026-11-27", "ton": 75, "da_ban": 35}}]},
             {"key": "heo", "ten": "Heo C.P (kg)", "truong": "heo_cp_kg", "don_vi": "kg",
              "muc_tieu": 801.6, "cho": "fresh", "ngung_tu": "2026-11-23"},
             # (08/11/2026) Nấm: phải đạt 25tr cả tháng, hiện từ 09/11 (lũy kế tính từ 01/11)
@@ -98,12 +104,16 @@ MUC_TIEU_THANG = {
             # (20/11/2026) Táo cherry hộp 500gr: chạy 21–28/11, tối thiểu 100 hộp (giao thu ngân), mỗi ngày không dưới 12 hộp
             {"key": "tao", "ten": "Táo cherry hộp 500gr (hộp)", "truong": "tao_cherry_hop", "don_vi": "hop", "muc_tieu": 0,
              "cho": "thu_ngan", "chi_trong_giai_doan": True, "san_ngay": 14, "san_tu": "2026-11-24",  # (23/11) sàn 14 hộp
+             "ngung_tu": "2026-11-28",  # (27/11/2026) anh Quí bỏ táo từ 28/11
              "giai_doan": [{"tu": "2026-11-21", "den": "2026-11-28", "muc_tieu": 100, "nhan": "Chạy 21–28/11 · min 100 hộp"}]},
             # (20/11/2026) C2 đã vượt 900 lốc -> từ 21/11 vẫn giữ sàn 20 lốc/ngày
             {"key": "c2", "ten": "C2 (lốc)", "truong": "c2_loc", "don_vi": "loc", "muc_tieu": 900,
              "san_ngay": 20, "san_tu": "2026-11-21"},
             {"key": "ng888", "ten": "888 (túi)", "truong": "nuoc_giat_888.sl", "don_vi": "tui",
-             "muc_tieu": 600, "cho": "thu_ngan"},  # (02/11/2026) 20 túi/ngày
+             "muc_tieu": 600, "cho": "thu_ngan",  # (02/11/2026) 20 túi/ngày
+             # (27/11/2026) anh Quí: mặc định 15 túi/ngày từ 28/11 (cố định, không dồn)
+             "mt_ngay_co_dinh": 15,
+             "giai_doan": [{"tu": "2026-11-28", "den": "2026-11-30", "muc_tieu": 45, "nhan": "Từ 28/11 · 15 túi/ngày"}]},
             # (08/11/2026) Thi đua tuần 2: kem đánh răng P/S 2 mã bán hết tồn (18 + 30 = 48 tuýp)
             {"key": "kdr", "ten": "Kem đánh răng P/S", "truong": "kdr_ps_tuyp", "don_vi": "tuyp", "muc_tieu": 0,
              "cho": "thu_ngan", "chi_trong_giai_doan": True,
@@ -122,6 +132,30 @@ def _d(s):
 
 def _s(d):
     return d.strftime("%Y-%m-%d")
+
+
+def _chi_gd(dong, ngay):
+    """chi_trong_giai_doan: True = chỉ hiện trong giai đoạn; "YYYY-MM-DD" = từ ngày đó mới chỉ hiện trong giai đoạn."""
+    v = dong.get("chi_trong_giai_doan")
+    if isinstance(v, str):
+        return ngay >= _d(v)
+    return bool(v)
+
+
+def _ap_ton_moc(dong, da_luu):
+    """(27/11/2026) Giai đoạn xả tồn: mục tiêu = tồn lúc chụp - phần bán thêm sau giờ chụp của ngày chụp."""
+    gds = dong.get("giai_doan") or []
+    if not any(g.get("ton_moc") for g in gds):
+        return dong
+    moi = []
+    for g in gds:
+        tm = g.get("ton_moc")
+        if tm:
+            p = da_luu.get(tm["ngay"])
+            ban = (_gia_tri(p, dict(dong, truong=g.get("truong") or dong.get("truong"))) or 0) if p is not None else 0
+            g = dict(g, muc_tieu=max(tm["ton"] - max(ban - tm["da_ban"], 0), 0))
+        moi.append(g)
+    return dict(dong, giai_doan=moi)
 
 
 def _gia_tri(payload, dong):
@@ -178,14 +212,18 @@ def tinh_mtkm(ngay_bc_str):
     def _gd_cua(dong):
         return next((g for g in dong.get("giai_doan", []) if _d(g["tu"]) <= ngay_bc <= _d(g["den"])), None)
 
-    ds_dong = [dg for dg in cau_hinh["dong"] if not (dg.get("chi_trong_giai_doan") and not _gd_cua(dg))
+    ds_dong = [dg for dg in (_ap_ton_moc(x, da_luu) for x in cau_hinh["dong"])
+               if not (_chi_gd(dg, ngay_bc) and not _gd_cua(dg))
                and not (dg.get("ap_dung_tu") and ngay_bc < _d(dg["ap_dung_tu"]))
                and not (dg.get("ngung_tu") and ngay_bc >= _d(dg["ngung_tu"]))]  # (23/11/2026) dòng đã ngưng
+    # (27/11/2026) giai đoạn đổi trường đếm / tên dòng (Trứng 28–30/11 chỉ đếm trứng gà hộp 10)
+    ds_dong = [dict(dg, truong=_gd_cua(dg)["truong"], ten=_gd_cua(dg).get("ten") or dg["ten"])
+               if _chi_gd(dg, ngay_bc) and (_gd_cua(dg) or {}).get("truong") else dg for dg in ds_dong]
     for dong in ds_dong:
         if dong.get("la_tong"):
             continue
         theo_ngay[dong["key"]] = {}
-        d = _d(_gd_cua(dong)["tu"]) if dong.get("chi_trong_giai_doan") else dau_thang
+        d = _d(_gd_cua(dong)["tu"]) if _chi_gd(dong, ngay_bc) else dau_thang
         while d <= ngay_bc:
             p = da_luu.get(_s(d))
             v = _gia_tri(p, dong) if p is not None else None
@@ -213,10 +251,10 @@ def tinh_mtkm(ngay_bc_str):
             mt_ngay = _mt_ngay(gd["muc_tieu"], tn, _d(gd["tu"]), _d(gd["den"]), ngay_bc)
             # (06/11/2026) Giai đoạn đẩy nhanh (Cá tuần 1) đã gần đạt -> MT ngày không thấp hơn nhịp tháng
             # (trước đây Cá 06/11 ra 0,22tr vì tuần 1 chỉ còn thiếu 0,3tr). Thi đua chu kỳ (Celano) giữ nguyên.
-            if not dong.get("chi_trong_giai_doan") and dong.get("muc_tieu"):
+            if not _chi_gd(dong, ngay_bc) and dong.get("muc_tieu"):
                 mt_ngay = max(mt_ngay, _mt_ngay(dong["muc_tieu"], tn, dau_thang, cuoi_thang, ngay_bc))
             nhan_gd = gd.get("nhan") or f"Tuần 1 ({_d(gd['tu']).strftime('%d')}–{_d(gd['den']).strftime('%d/%m')})"
-            if dong.get("chi_trong_giai_doan"):
+            if _chi_gd(dong, ngay_bc):
                 # thi đua theo chu kỳ: % tính trên mục tiêu chu kỳ, tiến độ theo số ngày của chu kỳ
                 so_ngay_gd = (_d(gd["den"]) - _d(gd["tu"])).days + 1
                 tien_do_rieng = ((ngay_bc - _d(gd["tu"])).days + 1) / so_ngay_gd * 100

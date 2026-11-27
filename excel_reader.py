@@ -20,6 +20,7 @@ file vào bot, không cần người dùng khai báo loại file.
 import os
 import openpyxl
 import re
+import unicodedata
 from datetime import datetime
 
 import ton_kho_dai_han  # (27/11/2026) 20 mã tồn kho dài hạn: đếm số bán theo model
@@ -154,6 +155,9 @@ BANH_M2T1_TU = "2026-11-20"
 
 # (21/11/2026) BẮP MỸ (TRÁI) — Model 1903000016 (gồm cả "COMBO 3 TRÁI BẮP MỸ" -> tính 3 trái)
 BAP_MY_MODEL = "1903000016"
+# (27/11/2026) Xả tồn trứng 28–30/11: anh Quí CHỈ tính TRỨNG GÀ HỘP 10 (Model 1608000786; combo N hộp tính N)
+TRUNG_GA_H10_MODEL = "1608000786"
+TRUNG_GA_H10_RE = re.compile(r"TRỨNG\s+GÀ\s+HỘP\s*10(?!\d)")
 
 # (23/11/2026) TRI ÂN BÁNH TƯƠI — MUA 1 TẶNG 1 (thứ 3 hằng tuần) — 27 Model trong file "Danh sách bánh tươi KM 1+1".
 # Đếm gói khách trả tiền (gói tặng không có trong POS 76): mua 1 tặng 1 -> tính 1.
@@ -307,6 +311,8 @@ def _empty_day_acc():
         "heo_cp_kg": 0.0,
         "c2_loc": 0.0,
         "trung_vi": 0.0,
+        "trung_ga10_hop": 0.0,
+        "trung_ga10_tien": 0.0,
         "heo_cp_damo_kg": 0.0,
         "celano_loc": 0.0,
         "celano_tien": 0.0,
@@ -367,6 +373,8 @@ def _finish_day_payload(ngay_str, acc):
         # TRỨNG quy ra VỈ (mỗi hộp/vỉ loại nào cũng = 1 vỉ, combo 2 hộp = 2 vỉ)
         "c2_loc": acc["c2_loc"],
         "trung_vi": acc["trung_vi"],
+        # (27/11/2026) riêng trứng gà hộp 10 (số hộp khách trả tiền + doanh thu)
+        "trung_ga10": {"hop": acc["trung_ga10_hop"], "tien": acc["trung_ga10_tien"]},
         "heo_cp_damo_kg": acc["heo_cp_damo_kg"],
         # (02/11/2026) Thi đua Celano 4 SKU (theo mã Model) — quy ra LỐC 4 hộp + doanh thu
         "celano_loc": acc["celano_loc"],
@@ -486,7 +494,12 @@ def read_category_rows_by_date(input_path):
         if (not la_tang and i_phan_tich is not None and i_phan_tich < len(row)
                 and str(row[i_phan_tich] or "").strip() == "Trứng Các Loại"):
             m_cb = re.search(r"COMBO\s*(\d+)", ten_sp_upper)
-            acc["trung_vi"] += sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
+            sl_vi = sl_thuc_xuat * (int(m_cb.group(1)) if m_cb else 1)
+            acc["trung_vi"] += sl_vi
+            ma_tr = str(row[i_model] or "").strip() if (i_model is not None and i_model < len(row)) else ""
+            if ma_tr == TRUNG_GA_H10_MODEL or TRUNG_GA_H10_RE.search(unicodedata.normalize("NFC", ten_sp_upper)):
+                acc["trung_ga10_hop"] += sl_vi
+                acc["trung_ga10_tien"] += thanh_tien
 
         # ---- (02/11/2026) CELANO 4 SKU thi đua (Model) -> lốc 4 hộp + doanh thu ----
         if (not la_tang and i_model is not None and i_model < len(row)

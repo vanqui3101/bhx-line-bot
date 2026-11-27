@@ -103,9 +103,10 @@ def _bubble(tieu_de, dong_phu, body):
     }
 
 
-def _ten_muc(k):
+def _ten_muc(k, ch=None):
     dv = MUC[k]["don_vi"]
-    return MUC[k]["ten"] + ("" if dv == "tr" else f" ({dv})")
+    ten = ((ch or {}).get("muc", {}).get(k) or {}).get("ten") or MUC[k]["ten"]  # (27/11/2026) tên theo giai đoạn
+    return ten + ("" if dv == "tr" else f" ({dv})")
 
 
 def _o_tieu_de(dong, flex, align="center"):
@@ -123,7 +124,7 @@ def _bang_muc_tieu_vai_tro(ch, ds_muc, nguoi, vai_tro):
                   [_o_tieu_de([n["ten"], ca_txt(n["ca"])], w_ng, "end") for n in nguoi], MTKM_HL_BG, "4px")]
     for k in ds_muc:
         dv = MUC[k]["don_vi"]
-        rows.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
+        rows.append(_hang([_t(_ten_muc(k, ch), "xs", MTKM_GOLD_TEXT, True, flex=w_muc),
                            _t(fmt_so(ch["muc"][k]["mt_ngay"], dv), cs, GRAY, False, "end", w_ch)] +
                           [_t(fmt_so(n["mt"][k], dv) if n["mt"].get(k) else "–", cs,
                               BLACK if n["mt"].get(k) else GRAY, bool(n["mt"].get(k)), "end", w_ng)
@@ -162,6 +163,16 @@ def build_the_muc_tieu(ngay_str, ch, tb):
                     chua_dk.append(n["ten"])
             except Exception:
                 pass
+    # (27/11/2026) mục CHUNG thu ngân + fresh (Trứng xả tồn): ghi rõ để các bạn hiểu số mỗi bạn là phần chia chung
+    for k in dict.fromkeys(ch["thu_ngan"] + ch["fresh"]):
+        if MUC[k].get("chung") and k in ch["thu_ngan"] and k in ch["fresh"]:
+            body.append({"type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
+                         "backgroundColor": "#FFF4E5", "contents": [
+                             _t(f"🥚 {_ten_muc(k, ch)}: mục tiêu CHUNG cả thu ngân + fresh "
+                                f"({fmt_co_don_vi(ch['muc'][k]['mt_ngay'], MUC[k]['don_vi'])}/ngày cả cửa hàng)",
+                                "xs", RED, True),
+                             _t("Chia đều từng bạn theo ca · bán HẾT tồn tới hết 30/11 · "
+                                "KHÔNG tính trứng vịt, cút, bắc thảo, gà ta", "xxs", GRAY)]})
     for dong_kmt in khong_muc:
         body.append({"type": "box", "layout": "vertical", "paddingAll": "8px", "paddingStart": "12px",
                      "contents": [_t(dong_kmt, "xs", GRAY)]})
@@ -196,13 +207,13 @@ def _bang_cua_hang(ch):
                    _t("MT ngày", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
                    _t("THỰC TẾ", "xxs", MTKM_GOLD_TEXT, True, "end", 22),
                    _t("% đạt", "xxs", MTKM_GOLD_TEXT, True, "end", 22)], MTKM_HL_BG)]
-    for i, k in enumerate(ch["thu_ngan"] + ch["fresh"]):
+    for i, k in enumerate(dict.fromkeys(ch["thu_ngan"] + ch["fresh"])):  # (27/11/2026) trứng chung: 1 dòng
         m = ch["muc"][k]
         dv = MUC[k]["don_vi"]
-        ten = MUC[k]["ten"] + ("" if dv == "tr" else f" ({dv})")
+        ten = _ten_muc(k, ch)
         phu = None
         if k == "trung" and m.get("tien") is not None:
-            phu = f"tiền trứng {fmt_so(m['tien'], 'tr')}tr"
+            phu = f"tiền {'trứng' if not m.get('ten') else m['ten'].lower()} {fmt_so(m['tien'], 'tr')}tr"
         elif k == "heo" and m.get("da_mo"):
             phu = f"trong đó da mỡ {fmt_so(m['da_mo'], 'kg')}kg"
         elif m.get("chu_ky"):
@@ -238,7 +249,7 @@ def _bang_tung_ban(bang, ds_muc, ch):
                   MTKM_HL_BG, "4px")]
     for k in ds_muc:
         dv = MUC[k]["don_vi"]
-        cells = [_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
+        cells = [_t(_ten_muc(k, ch), "xs", MTKM_GOLD_TEXT, True, flex=w_muc)]
         for d in dong:
             mt = d["mt"].get(k)
             if not d["da_bao"]:
@@ -279,7 +290,7 @@ def _bang_tung_ban(bang, ds_muc, ch):
                 ctv_txt, ctv_mau = "⚠ BC KHỐNG", RED
             else:
                 ctv_txt, ctv_mau = pct_txt(ctv), _mau_pct(ctv)
-        rows2.append(_hang([_t(_ten_muc(k), "xs", MTKM_GOLD_TEXT, True, flex=w2[0]),
+        rows2.append(_hang([_t(_ten_muc(k, ch), "xs", MTKM_GOLD_TEXT, True, flex=w2[0]),
                             _t(bao_txt, "sm", BLACK, False, "end", w2[1]),
                             _t(fmt_so(pos, dv) if pos is not None else "–", "sm", BLACK, True, "end", w2[2]),
                             _t(ctv_txt, "sm", ctv_mau, True, "end", w2[3])], pad="4px"))
@@ -292,8 +303,8 @@ def build_the_chot_so(ngay_str, kq):
     ch = kq["ch"]
     # Phần 1: mục tiêu ngày cửa hàng + MT ngày mai
     dau = [_sec("MỤC TIÊU NGÀY CỬA HÀNG"), _bang_cua_hang(ch)]
-    mai = [f"{MUC[k]['ten']} {fmt_co_don_vi(ch['muc'][k]['mt_mai'], MUC[k]['don_vi'])}"
-           for k in ch["thu_ngan"] + ch["fresh"] if ch["muc"][k]["mt_mai"] is not None]
+    mai = [f"{ch['muc'][k].get('ten') or MUC[k]['ten']} {fmt_co_don_vi(ch['muc'][k]['mt_mai'], MUC[k]['don_vi'])}"
+           for k in dict.fromkeys(ch["thu_ngan"] + ch["fresh"]) if ch["muc"][k]["mt_mai"] is not None]
     if mai:
         dau.append(_hop_canh_bao(["MT ngày mai (đã dồn phần thiếu/dư): " + " · ".join(mai)], NEN_XANH, CHU_XANH))
     # (03/11/2026) Phần từng bạn đã tách sang lệnh THU NGÂN / FRESH (tổng kết 3 ngày)
