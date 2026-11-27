@@ -22,6 +22,8 @@ import openpyxl
 import re
 from datetime import datetime
 
+import ton_kho_dai_han  # (27/11/2026) 20 mã tồn kho dài hạn: đếm số bán theo model
+
 # ---------------------------------------------------------------------------
 # LOẠI 1: FILE DOANH THU THEO SIÊU THỊ (giữ nguyên như code cũ)
 # ---------------------------------------------------------------------------
@@ -315,6 +317,7 @@ def _empty_day_acc():
         "bap_my_trai": 0.0,
         "banh_tuoi_goi": 0.0,
         "rau_la_goi": 0.0,
+        "tkdh_ban": {},
     }
 
 
@@ -381,6 +384,8 @@ def _finish_day_payload(ngay_str, acc):
         "banh_tuoi_goi": acc["banh_tuoi_goi"],
         # (23/11/2026) Rau lá gói 500g/300g — số gói (Fresh)
         "rau_la_goi": acc["rau_la_goi"],
+        # (27/11/2026) Tồn kho dài hạn — số bán theo từng model (đơn vị lẻ)
+        "tkdh_ban": acc["tkdh_ban"],
     }
 
 
@@ -521,6 +526,12 @@ def read_category_rows_by_date(input_path):
         # ---- (23/11/2026) RAU LÁ GÓI 500G/300G -> số gói ----
         if not la_tang and i_model is not None and i_model < len(row) and str(row[i_model] or "").strip() in RAU_LA_GOI_MODELS:
             acc["rau_la_goi"] += sl_thuc_xuat
+        # ---- (27/11/2026) TỒN KHO DÀI HẠN (20 mã) -> số bán từng model, THÙNG quy ra đơn vị lẻ ----
+        if not la_tang and i_model is not None and i_model < len(row):
+            m_tk = str(row[i_model] or "").strip()
+            if m_tk in ton_kho_dai_han.QUY_CACH:
+                acc["tkdh_ban"][m_tk] = (acc["tkdh_ban"].get(m_tk, 0.0)
+                                         + sl_thuc_xuat * ton_kho_dai_han.he_so_don_vi(m_tk, cell("don_vi")))
 
         # ---- NƯỚC GIẶT 888 (đếm theo TÚI; thùng "TH4" quy đổi = 4 túi) ----
         if not la_tang and sl_thuc_xuat > 0 and all(kw in ten_sp_upper for kw in NUOC_GIAT_888_KEYWORDS):
@@ -727,7 +738,8 @@ def read_stock_rows(input_path):
 
         model_val = cell(r, "model")
         model_str = str(model_val).strip() if model_val is not None else ""
-        rows.append({"model": model_str, "ton_kho": ton_kho})
+        rows.append({"model": model_str, "ton_kho": ton_kho,
+                     "don_vi": str(cell(r, "don_vi") or "").strip()})  # (27/11/2026) TKDH cần đơn vị để quy thùng
 
     if not ton_kho_map:
         raise ValueError("Không tìm thấy dòng dữ liệu tồn kho nào trong file.")

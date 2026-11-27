@@ -83,6 +83,7 @@ import muc_tieu_flex
 import gdrive_reader
 import menu_bot
 import mtkm_sieu_thi_phu  # (15/11/2026) MTKM nấm siêu thị phụ (14536 Mỹ Xuyên), tách riêng 8363
+import ton_kho_dai_han  # (27/11/2026) Tồn kho dài hạn 20 mã — lệnh "TKDH"
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 GROUP_ID = os.environ.get("GROUP_ID", "").strip()
@@ -156,6 +157,9 @@ _boc_log_gui_tin("push_message", "LINE-PUSH")
 # ---- Lệnh nhận diện (khớp cả khi gõ trong nhóm, không phân biệt hoa/thường) ----
 DT_COMMAND_PATTERN = re.compile(
     r"^\s*(dt|b[aá]o\s*c[aá]o\s*doanh\s*thu)\s*$", re.IGNORECASE
+)
+TKDH_COMMAND_PATTERN = re.compile(  # (27/11/2026)
+    r"^\s*(tkdh|t[oồ]n\s*kho\s*d[aà]i\s*h[aạ]n)\s*$", re.IGNORECASE
 )
 MTKM_COMMAND_PATTERN = re.compile(
     r"^\s*(mtkm|m[uụ]c\s*ti[eê]u\s*khuy[eế]n\s*m[aã]i)\s*$", re.IGNORECASE
@@ -1267,6 +1271,10 @@ def _process_drive_file(tmp_path, file_name):
                 stock_payload["ten_st"], stock_payload, _now_vn_time_str()
             )
             so_sp = len(stock_payload["ton_kho_map"])
+            try:  # (27/11/2026) lưu tồn 20 mã TKDH theo ngày
+                ton_kho_dai_han.luu_ton(stock_payload, _ngay_hien_tai_str(), _now_vn_time_str())
+            except Exception:
+                traceback.print_exc()
             return True, f"✅ [Tự động từ Drive] Đã lưu dữ liệu TỒN KHO cho {so_sp} sản phẩm."
         elif file_type == "fresh":
             fresh_rows = read_fresh_rows(tmp_path)
@@ -1425,6 +1433,10 @@ def handle_file_message(event):
                     stock_payload["ten_st"], stock_payload, _now_vn_time_str()
                 )
                 so_sp = len(stock_payload["ton_kho_map"])
+                try:  # (27/11/2026) lưu tồn 20 mã TKDH theo ngày
+                    ton_kho_dai_han.luu_ton(stock_payload, _ngay_hien_tai_str(), _now_vn_time_str())
+                except Exception:
+                    traceback.print_exc()
                 reply = (
                     f"✅ Đã lưu dữ liệu TỒN KHO cho {so_sp} sản phẩm.\n\n"
                     f"Gõ \"MỤC TIÊU KHUYẾN MÃI\" để xem báo cáo có kèm % bán trên tồn."
@@ -1891,6 +1903,19 @@ def handle_text_message(event):
                 traceback.print_exc()
                 try:
                     notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo MTKM {ma_phu}: {e}")
+                except Exception:
+                    traceback.print_exc()
+            return
+        # (27/11/2026) Lệnh TỒN KHO DÀI HẠN — 20 mã, chạy đến hết tồn
+        if TKDH_COMMAND_PATTERN.match(text):
+            try:
+                _nap_drive_truoc_khi_tra_bang()
+                kq_tk = ton_kho_dai_han.tinh(_ngay_hien_tai_str())
+                reply_flex_multi(messaging_api, event.reply_token, "Tồn kho dài hạn", ton_kho_dai_han.build_the(kq_tk))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    notify_text(messaging_api, event.reply_token, target_id, f"Có lỗi khi tạo bảng tồn kho dài hạn: {e}")
                 except Exception:
                     traceback.print_exc()
             return
